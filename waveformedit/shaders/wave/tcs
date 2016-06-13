@@ -1,0 +1,13 @@
+#version 400
+
+layout(vertices = 1) out; 
+
+in vec4 coefs_VS_out[];
+
+out vec4 coefs_TCS_out[];
+
+void main() {
+	coefs_TCS_out[0] = coefs_VS_out[0];
+	gl_TessLevelOuter[0] = 1; // we're only tessellating one line
+	gl_TessLevelOuter[1] = 64; // tessellate the line into 100 segments
+}

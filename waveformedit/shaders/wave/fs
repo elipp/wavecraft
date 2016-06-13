@@ -1,0 +1,19 @@
+#version 400
+
+in float dydx;
+out vec4 frag_color;
+
+uniform float TIME;
+
+float S(float t) {
+	return 0.5*sin(t) + 0.5;
+}
+
+
+void main() {
+  frag_color = vec4(
+  pow(1.2, abs(dydx)),
+  pow(2, -abs(dydx)),
+  0.0,
+  1.0);
+}
