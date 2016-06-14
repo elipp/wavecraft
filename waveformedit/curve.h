@@ -23,6 +23,7 @@ struct vec2 {
 vec2 operator*(float c, const vec2& v);
 vec2 operator*(const vec2& v, float c);
 
+__declspec(align(16))
 struct mat24 { // 2 columns, 4 rows
 	vec4 columns[2];
 	
@@ -35,6 +36,26 @@ struct mat24 { // 2 columns, 4 rows
 
 	vec2 row(int row) const {
 		return vec2(columns[0](row), columns[1](row));
+	}
+
+	void *operator new(size_t size){
+		void *p;
+		ALIGNED_MALLOC16(p, size);
+		return p;
+	}
+
+	void *operator new[](size_t size) {
+		void *p;
+		ALIGNED_MALLOC16(p, size);
+		return p;
+	}
+
+	void operator delete(void *p) {
+		ALIGNED_FREE(p);
+	}
+
+	void operator delete[](void *p) {
+		ALIGNED_FREE(p);
 	}
 };
 
@@ -56,9 +77,11 @@ struct BEZIER4 {
 	BEZIER4(const vec2 &aP0, const vec2 &aP1, const vec2 &aP2, const vec2 &aP3);
 	BEZIER4(const mat24 &PV);
 
+	void update(); // this updates the points24 and matrix_repr values according to the P0, ..., P3 values.
+
 	BEZIER4() {}
 	
-	BEZIER4 *split(float t);
+	int split(float t, BEZIER4 *out);
 
 	CATMULLROM4 convert_to_CATMULLROM4() const;
 

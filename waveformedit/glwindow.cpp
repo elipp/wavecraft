@@ -34,12 +34,13 @@ unsigned WINDOW_WIDTH = WIN_W;
 unsigned WINDOW_HEIGHT = WIN_H;
 
 static GLuint wave_VBOid, wave_VAOid;
+static GLuint bezier_VBOid, bezier_VAOid;
 
 bool fullscreen = false;
 bool active = TRUE;
 
 static Texture *gradient_texture;
-static ShaderProgram *wave_shader, *point_shader, *grid_shader;
+static ShaderProgram *wave_shader, *point_shader, *grid_shader, *bezier_shader;
 
 static bool _main_loop_running = true;
 bool main_loop_running() { return _main_loop_running; }
@@ -159,7 +160,7 @@ void update_data() {
 
 	float y0, y1, y2, y3;
 	y0 = 0.0;
-	y1 = sin(GT);
+	y1 = sin(3*GT);
 	y2 = -sin(GT);
 	y3 = 0.0;
 
@@ -207,12 +208,17 @@ void draw() {
 	glBindVertexArray(wave_VAOid);	
 	glDrawArrays(GL_PATCHES, 0, NUM_CURVES);
 
-	glBindVertexArray(0);
-
 	glUseProgram(grid_shader->getProgramHandle());
 	grid_shader->update_uniform_1f("tess_level", 11);
 	grid_shader->update_uniform_mat4("uMVP", mvp);
 	glDrawArrays(GL_PATCHES, 0, 1);
+
+	glUseProgram(bezier_shader->getProgramHandle());
+	glBindVertexArray(bezier_VAOid);
+	bezier_shader->update_uniform_mat4("uMVP", mvp);
+	glDrawArrays(GL_PATCHES, 0, 2);
+
+	glBindVertexArray(0);
 
 	/*grid_shader->update_uniform_1f("tess_level", 22);
 	mvp = mvp * mat4::scale(0.50, 2.0, 0) * mat4::rotate(3.1415926536 / 2.0, 0, 0, 1) * mat4::translate(-0.5, 1.0, 0.0);
@@ -249,7 +255,6 @@ int init_GL() {
 
 	printf("GL_MAX_ELEMENTS_VERTICES = %d\nGL_MAX_ELEMENTS_INDICES = %d\n", max_elements_vertices, max_elements_indices);
 
-
 #define ADD_ATTRIB(map, attrib_id, attrib_name) do {\
 	(map).insert(std::make_pair<GLuint, std::string>((attrib_id), std::string(attrib_name)));\
 	} while(0)
@@ -257,11 +262,14 @@ int init_GL() {
 	std::unordered_map<GLuint, std::string> default_attrib_bindings;
 	ADD_ATTRIB(default_attrib_bindings, ATTRIB_POSITION, "Position_VS_in");
 
-	wave_shader = new ShaderProgram("shaders/wave", default_attrib_bindings);
-	point_shader = new ShaderProgram("shaders/pointplot", default_attrib_bindings);
-	grid_shader = new ShaderProgram("shaders/grid", default_attrib_bindings);
+	std::unordered_map<GLuint, std::string> bezier_attrib_bindings = {
+		{0, "COORD_COLUMN_X"}, {1, "COORD_COLUMN_Y"}
+	};
 
-	// TODO: CHECK SHADERS FOR BADNESS :D
+	wave_shader = new ShaderProgram("shaders/wave", default_attrib_bindings);
+	//point_shader = new ShaderProgram("shaders/pointplot", default_attrib_bindings);
+	grid_shader = new ShaderProgram("shaders/grid", default_attrib_bindings);
+	bezier_shader = new ShaderProgram("shaders/bezier", bezier_attrib_bindings);
 
 	glGenVertexArrays(1, &wave_VAOid);
 	glBindVertexArray(wave_VAOid);
@@ -273,6 +281,37 @@ int init_GL() {
 	glBufferData(GL_ARRAY_BUFFER, NUM_CURVES*sizeof(float), NULL, GL_DYNAMIC_DRAW);
 
 	glVertexAttribPointer(ATTRIB_POSITION, 1, GL_FLOAT, GL_FALSE, 1*sizeof(float), 0);
+
+	glBindVertexArray(0);
+
+	// bezier test init
+	BEZIER4 B(
+		vec2(0.0, 1.0),
+		vec2(0.0, -1.0),
+		vec2(1.0, -1.0),
+		vec2(1.0, 1.0));
+
+	BEZIER4 split[2];
+	B.split(0.6, &split[0]);
+
+	mat24 lulz[2];
+	lulz[0] = split[0].matrix_repr;
+	split[1].P3 = vec2(0.0, 0.0);
+	split[1].update();
+	lulz[1] = split[1].matrix_repr;
+
+	glGenVertexArrays(1, &bezier_VAOid);
+	glBindVertexArray(bezier_VAOid);
+
+	glEnableVertexAttribArray(0);
+	glEnableVertexAttribArray(1);
+
+	glGenBuffers(1, &bezier_VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, bezier_VBOid);
+	glBufferData(GL_ARRAY_BUFFER, 2 * 2 * 4 * sizeof(float), &lulz[0], GL_DYNAMIC_DRAW);
+
+	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 2*4 * sizeof(float), 0);
+	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 2*4 * sizeof(float), (LPVOID)(4 * sizeof(float)));
 
 	glBindVertexArray(0);
 

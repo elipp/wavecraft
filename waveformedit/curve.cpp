@@ -3,6 +3,14 @@
 #include <xmmintrin.h>
 #include <smmintrin.h>
 
+inline void print_mat4(const mat4 &M) {
+	for (int i = 0; i < 4; ++i) {
+		printf("(%.3f, %.3f, %.3f, %.3f)\n", M(0, i), M(1, i), M(2, i), M(3, i));
+	}
+	
+	printf("\n");
+}
+
 const mat4 BEZIER4::weights = mat4(
 	vec4(1, -3, 3, -1), 
 	vec4(0, 3, -6, 3), 
@@ -102,9 +110,9 @@ BEZIER4::BEZIER4(const mat24 &PV)
 	matrix_repr = multiply44_24(BEZIER4::weights, points24);
 };
 
-BEZIER4 *BEZIER4::split(float t) {
+int BEZIER4::split(float t, BEZIER4 *out) {
 	if (t < 0.0 || t > 1.0) {
-		return NULL;
+		return 0;
 	}
 
 	float tm1 = t - 1;
@@ -123,25 +131,29 @@ BEZIER4 *BEZIER4::split(float t) {
 		vec4(0, 0, 0, t3)
 		);
 
+	print_mat4(first);
+
 	mat4 tmp = first.transposed();
+
+	print_mat4(tmp);
 
 	mat4 second = mat4(
 		tmp.column(3),
-		vec4(_mm_shuffle_ps(tmp.column(2).getData(), tmp.column(2).getData(), _MM_SHUFFLE(3, 0, 1, 2))),
-		vec4(_mm_shuffle_ps(tmp.column(1).getData(), tmp.column(1).getData(), _MM_SHUFFLE(2, 3, 0, 1))),
-		vec4(_mm_shuffle_ps(tmp.column(0).getData(), tmp.column(0).getData(), _MM_SHUFFLE(1, 2, 3, 0)))
+		vec4(_mm_shuffle_ps(tmp.column(2).getData(), tmp.column(2).getData(), _MM_SHUFFLE(2,1,0,3))),
+		vec4(_mm_shuffle_ps(tmp.column(1).getData(), tmp.column(1).getData(), _MM_SHUFFLE(1,0,3,2))),
+		vec4(_mm_shuffle_ps(tmp.column(0).getData(), tmp.column(0).getData(), _MM_SHUFFLE(0,3,2,1)))
 		)
 		.transposed();
+
+	print_mat4(second);
 
 	mat24 C1 = multiply44_24(first, this->points24);
 	mat24 C2 = multiply44_24(second, this->points24);
 
-	BEZIER4 *ret = new BEZIER4[2];
+	out[0] = BEZIER4(C1);
+	out[1] = BEZIER4(C2);
 
-	ret[0] = BEZIER4(C1);
-	ret[1] = BEZIER4(C2);
-
-	return ret;
+	return 1;
 	
 }
 
@@ -152,6 +164,11 @@ CATMULLROM4 BEZIER4::convert_to_CATMULLROM4() const {
 		P3,
 		P1 + 6 * (P3 - P2),
 		1);
+}
+
+void BEZIER4::update() {
+	points24 = mat24(P0, P1, P2, P3);
+	matrix_repr = multiply44_24(BEZIER4::weights, points24);
 }
 
 CATMULLROM4::CATMULLROM4(const vec2 &aP0, const vec2 &aP1, const vec2 &aP2, const vec2 &aP3, float a_tension)
@@ -188,6 +205,7 @@ CATMULLROM4::CATMULLROM4(const mat24 &PV, float a_tension)
 
 	matrix_repr = multiply44_24(CATMULLROM4::weights, multiply44_24(intermediate, points24));
 }
+
 vec2 CATMULLROM4::evaluate(float s) {
 	float s2 = s*s;
 	float s3 = s2*s;
@@ -200,7 +218,8 @@ vec2 CATMULLROM4::evaluate(float s) {
 
 CATMULLROM4 *CATMULLROM4::split(float s) const {
 	BEZIER4 B = this->convert_to_BEZIER4();
-	BEZIER4 *SB = B.split(s);
+	BEZIER4 SB[2];
+	B.split(s, SB);
 
 	// no idea if this is correct or not XD
 
