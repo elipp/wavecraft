@@ -17,7 +17,10 @@ uniform mat4 uMVP;
 float y_val(float x) {
     float x2 = x*x;
     float x3 = x2*x;
-	return dot(vec4(x3, x2, x, 1), coefs_TCS_out[0]);
+	float f = dot(vec4(x3, x2, x, 1), coefs_TCS_out[0]);
+
+
+    return f;
 }
 
 out float dydx;

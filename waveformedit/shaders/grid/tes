@@ -5,8 +5,9 @@ layout (isolines) in;
 uniform mat4 uMVP;
 
 out vec4 pos;
+uniform float tess_level;
 
 void main() {
-    pos = vec4(gl_TessCoord.x, 2*(gl_TessCoord.y - 0.5) + 1.0/11.0, 0.0, 1.0);
+    pos = vec4(gl_TessCoord.x, (2*(gl_TessCoord.y-0.5) + 1.0/tess_level)*(tess_level/(tess_level-1)), 0.0, 1.0);
     gl_Position = uMVP*pos;
 }

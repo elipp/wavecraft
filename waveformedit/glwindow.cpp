@@ -145,65 +145,28 @@ static int get_samples(const vec4 &coefs, wave_format_t *fmt) {
 
 void update_data() {
 
-	//static float patch_buffer[NUM_CURVES];
-
-	//for (int i = 0; i < NUM_CURVES; ++i) {
-	//	patch_buffer[i] = (float)i / (float)NUM_CURVES;
-	//}
-
-	mat4 m = mat4(
-		vec4(0, 0, 0, 1), 
-		vec4((0.33*0.33*0.33), (0.33*0.33), 0.33, 1), 
-		vec4((0.66*0.66*0.66), (0.66*0.66), 0.66, 1), 
-		vec4(1, 1, 1, 1));
-	
-	m.invert();
-
-	float y0, y1, y2, y3;
-	y0 = 0.0;
-	y1 = sin(3*GT);
-	y2 = -sin(GT);
-	y3 = 0.0;
-
-	float points[8] = {
-		0.0, y0,
-		0.33, y1,
-		0.66, y2,
-		1.0, y3
-	};
-
 	while (!SND_initialized()) { Sleep(250); }
 
 	wave_format_t fmt = SND_get_format_info();
-	vec4 coefs = solve_equation_coefs(points);
 	allocate_static_buf(fmt.num_channels * SND_get_frame_size());
-	get_samples(coefs, &fmt);
-	SND_write_to_buffer(sample_buffer);
 
+	BEZIER4 B(
+		vec2(0.0, cos(3*GT)),
+		vec2(0.33, -2*sin(GT)),
+		vec2(0.5, 3*sin(6*GT)),
+		vec2(1.0, cos(3*GT)));
 
-	static int k = 1;
-	if (k) {
-		BEZIER4 B(
-			vec2(0.0, 1.0),
-			vec2(0.0, -1.0),
-			vec2(1.0, -1.0),
-			vec2(1.0, 1.0));
+	//float *S1 = B.sample_curve(SND_get_frame_size(), 64);
+	float *S = B.sample_curve_noLUT(SND_get_frame_size(), 256);
 
-		timer_t timer;
-		float *S1 = B.sample_curve(SND_get_frame_size(), 64);
-		double ms1 = timer.get_ms();
+	SND_write_to_buffer(S);
 
-		timer.begin();
-		float *S2 = B.sample_curve_noLUT(SND_get_frame_size(), 64);
-		double ms2 = timer.get_ms();
-		printf("LUT: %f ms, noLUT: %f ms. sample #213: %f, %f\n", ms1, ms2, S1[213], S2[213]);
-	}
+	glBindBuffer(GL_ARRAY_BUFFER, bezier_VBOid);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, 2 * 4 * sizeof(float), &B.matrix_repr);
 
-	k = 0;
-
-	glUseProgram(wave_shader->getProgramHandle());
-	wave_shader->update_uniform_mat4("coefs_inv", m);
-	wave_shader->update_uniform_vec4("y_coords", vec4(y0, y1, y2, y3));
+	//glUseProgram(wave_shader->getProgramHandle());
+	//wave_shader->update_uniform_mat4("coefs_inv", m);
+	//wave_shader->update_uniform_vec4("y_coords", vec4(y0, y1, y2, y3));
 
 	//glBindBuffer(GL_ARRAY_BUFFER, wave_VBOid);
 	//glBufferSubData(GL_ARRAY_BUFFER, 0, NUM_CURVES*sizeof(float), patch_buffer);
@@ -226,18 +189,18 @@ void draw() {
 
 	update_data();
 
-	glBindVertexArray(wave_VAOid);	
-	glDrawArrays(GL_PATCHES, 0, NUM_CURVES);
+	//glBindVertexArray(wave_VAOid);	
+	//glDrawArrays(GL_PATCHES, 0, NUM_CURVES);
 
 	glUseProgram(grid_shader->getProgramHandle());
-	grid_shader->update_uniform_1f("tess_level", 11);
+	grid_shader->update_uniform_1f("tess_level", 5);
 	grid_shader->update_uniform_mat4("uMVP", mvp);
 	glDrawArrays(GL_PATCHES, 0, 1);
 
 	glUseProgram(bezier_shader->getProgramHandle());
 	glBindVertexArray(bezier_VAOid);
 	bezier_shader->update_uniform_mat4("uMVP", mvp);
-	glDrawArrays(GL_PATCHES, 0, 2);
+	glDrawArrays(GL_PATCHES, 0, 1);
 
 	glBindVertexArray(0);
 
@@ -305,25 +268,6 @@ int init_GL() {
 
 	glBindVertexArray(0);
 
-	// bezier test init
-	BEZIER4 B(
-		vec2(0.0, 1.0),
-		vec2(0.0, -1.0),
-		vec2(1.0, -1.0),
-		vec2(1.0, 1.0));
-
-
-
-	BEZIER4 split[2];
-	B.split(0.6, &split[0]);
-
-	mat24 lulz[2];
-	lulz[0] = split[0].matrix_repr;
-	//split[1].P2 = vec2(0.95, 3.0);
-	//split[1].P3 = vec2(1.0, -0.7);
-	//split[1].update();
-	lulz[1] = split[1].matrix_repr;
-
 	glGenVertexArrays(1, &bezier_VAOid);
 	glBindVertexArray(bezier_VAOid);
 
@@ -332,7 +276,7 @@ int init_GL() {
 
 	glGenBuffers(1, &bezier_VBOid);
 	glBindBuffer(GL_ARRAY_BUFFER, bezier_VBOid);
-	glBufferData(GL_ARRAY_BUFFER, 2 * 2 * 4 * sizeof(float), &lulz[0], GL_DYNAMIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, 2 * 4 * sizeof(float), NULL, GL_DYNAMIC_DRAW);
 
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 2*4 * sizeof(float), 0);
 	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 2*4 * sizeof(float), (LPVOID)(4 * sizeof(float)));
