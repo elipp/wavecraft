@@ -17,6 +17,12 @@ const mat4 BEZIER4::weights = mat4(
 	vec4(0, 0, 3, -3), 
 	vec4(0, 0, 0, 1));
 
+const mat4 BEZIER4::weights_derivative = mat4(
+	vec4(1, -2, 1, 0),
+	vec4(0, 2, -2, 0),
+	vec4(0, 0, 1, 0),
+	vec4(0, 0, 0, 0));
+
 const mat4 CATMULLROM4::weights = mat4(
 	vec4(1, 0, -3, 2),
 	vec4(0, 0, 3, -2),
@@ -51,7 +57,7 @@ vec2 operator*(const vec2& v, float c) {
 	return c * v;
 }
 
-vec2 BEZIER4::evaluate(float t) {
+vec2 BEZIER4::evaluate(float t) const {
 	//return bezier4(control_points[0], control_points[1], control_points[2], control_points[3], t);
 	float t2 = t*t;
 	float t3 = t2*t;
@@ -60,7 +66,7 @@ vec2 BEZIER4::evaluate(float t) {
 	return multiply4_24(tv, matrix_repr);
 }
 
-float BEZIER4::dydx(float t, float dt) {
+float BEZIER4::dydx(float t, float dt) const {
 
 	t = t + dt > 1.0 ? t - dt : t;
 	t = t - dt < 0.0 ? t + dt : t;
@@ -72,7 +78,7 @@ float BEZIER4::dydx(float t, float dt) {
 
 }
 
-float BEZIER4::dxdt(float t, float dt) {
+float BEZIER4::dxdt(float t, float dt) const {
 	t = t + dt > 1.0 ? t - dt : t;
 	t = t - dt < 0.0 ? t + dt : t;
 	
@@ -82,7 +88,7 @@ float BEZIER4::dxdt(float t, float dt) {
 	return (p1.x - p0.x) / dt;
 }
 
-float BEZIER4::dydt(float t, float dt) {
+float BEZIER4::dydt(float t, float dt) const {
 	t = t + dt > 1.0 ? t - dt : t;
 	t = t - dt < 0.0 ? t + dt : t;
 
@@ -92,11 +98,27 @@ float BEZIER4::dydt(float t, float dt) {
 	return (p1.y - p0.y) / dt;
 }
 
+vec2 BEZIER4::evaluate_derivative(float t) const {
+	float t2 = t*t;
+	vec4 vt(1, t, t2, 0);
+	vec2 d = multiply4_24(vt, derivative_mrepr);
+	return d;
+}
+
+
 BEZIER4::BEZIER4(const vec2 &aP0, const vec2 &aP1, const vec2 &aP2, const vec2 &aP3) 
 	: P0(aP0), P1(aP1), P2(aP2), P3(aP3) {
 
 	points24 = mat24(P0, P1, P2, P3);
 	matrix_repr = multiply44_24(BEZIER4::weights, points24);
+
+	derivative_p24 = mat24(
+		vec2(3 * (P1 - P0)),
+		vec2(3 * (P2 - P1)),
+		vec2(3 * (P3 - P2)),
+		vec2(0, 0));
+
+	derivative_mrepr = multiply44_24(BEZIER4::weights_derivative, derivative_p24);
 };
 
 BEZIER4::BEZIER4(const mat24 &PV) 
@@ -108,9 +130,17 @@ BEZIER4::BEZIER4(const mat24 &PV)
 	P3 = points24.row(3);
 
 	matrix_repr = multiply44_24(BEZIER4::weights, points24);
+
+	derivative_p24 = mat24(
+		vec2(3 * (P1 - P0)),
+		vec2(3 * (P2 - P1)),
+		vec2(3 * (P3 - P2)),
+		vec2(0, 0));
+
+	derivative_mrepr = multiply44_24(BEZIER4::weights_derivative, derivative_p24);
 };
 
-int BEZIER4::split(float t, BEZIER4 *out) {
+int BEZIER4::split(float t, BEZIER4 *out) const {
 	if (t < 0.0 || t > 1.0) {
 		return 0;
 	}
@@ -131,11 +161,14 @@ int BEZIER4::split(float t, BEZIER4 *out) {
 		vec4(0, 0, 0, t3)
 		);
 
+
 	print_mat4(first);
 
 	mat4 tmp = first.transposed();
 
 	print_mat4(tmp);
+
+	// lulz, might be faster (also a lot clearer) just to directly set the second matrix XD
 
 	mat4 second = mat4(
 		tmp.column(3),
@@ -170,6 +203,95 @@ void BEZIER4::update() {
 	points24 = mat24(P0, P1, P2, P3);
 	matrix_repr = multiply44_24(BEZIER4::weights, points24);
 }
+
+static double avg_err = 0;
+static int num_avg = 0;
+
+static inline float LUT_find_y_for_x(float x, const vec2 *LUT, int buf_size, int *buff_offset) {
+	int i = *buff_offset;
+
+	int n = 0;
+
+	for (; i < buf_size; ++i) {
+		if (LUT[i].x >= x) {
+			*buff_offset = i;
+			break;
+		}
+		++n;
+	}
+
+	if (*buff_offset < i) {
+		printf("(BEZIER4 helper)find_y_for_x: didn't find a suitable sample, using the last one.\n");
+	}
+
+	//printf("found point (%f, %f) in %d iterations for x target %f (fabs(DELTA) = %.2e)\n", LUT[i].x, LUT[i].y, n, x, fabs(LUT[i].x - x));
+
+	//++num_avg;
+	//avg_err += fabs(LUT[i].x - x);
+
+	return LUT[i].y;
+}
+
+float *BEZIER4::sample_curve(UINT32 frame_size, int precision) const {
+	float *samples = new float[frame_size * 2];
+
+	size_t LUT_size = precision*frame_size;
+	vec2 *LUT = new vec2[LUT_size];
+
+	const float dt = 1.0 / (float)LUT_size;
+	
+	for (int i = 0; i < LUT_size; ++i) {
+		float t = dt * (float)i;
+		LUT[i] = evaluate(t);
+	}
+
+	const float dx = 1.0 / (float)frame_size;
+	int buff_offset = 0;
+	for (int i = 0; i < frame_size; ++i) {
+
+		float target_x = i * dx;
+
+		float y = LUT_find_y_for_x(target_x, LUT, LUT_size, &buff_offset);
+
+		samples[2 * i] = y;
+		samples[2 * i + 1] = y;
+
+	}
+	
+	//printf("avg_err: %f\n", avg_err / (double)num_avg);
+
+	delete[] LUT;
+	
+	return samples;
+}
+
+float *BEZIER4::sample_curve_noLUT(UINT32 frame_size, int precision) const {
+
+	float *samples = new float[frame_size * 2];
+
+	const float dx = 1.0 / (float)frame_size;
+	const float dt = 1.0 / ((float)frame_size * precision);
+	float t = 0;
+
+	int buff_offset = 0;
+	for (int i = 0; i < frame_size; ++i) {
+		float target_x = i * dx;
+		vec2 p = evaluate(t);
+
+		while (p.x < target_x) {
+			t += dt;
+			p = evaluate(t);
+		}
+
+		samples[2 * i] = p.y;
+		samples[2 * i + 1] = p.y;
+
+	}
+
+	return samples;
+}
+
+
 
 CATMULLROM4::CATMULLROM4(const vec2 &aP0, const vec2 &aP1, const vec2 &aP2, const vec2 &aP3, float a_tension)
 : P0(aP0), P1(aP1), P2(aP2), P3(aP3), tension(a_tension) {
@@ -216,19 +338,20 @@ vec2 CATMULLROM4::evaluate(float s) {
 }
 
 
-CATMULLROM4 *CATMULLROM4::split(float s) const {
+int CATMULLROM4::split(float s, CATMULLROM4 *out) const {
+
+	if (s < 0 || s > 1.0) return 0;
+
 	BEZIER4 B = this->convert_to_BEZIER4();
 	BEZIER4 SB[2];
-	B.split(s, SB);
+	B.split(s, &SB[0]);
 
 	// no idea if this is correct or not XD
 
-	CATMULLROM4 *SC = new CATMULLROM4[2];
-	SC[0] = SB[0].convert_to_CATMULLROM4();
-	SC[1] = SB[1].convert_to_CATMULLROM4();
+	out[0] = SB[0].convert_to_CATMULLROM4();
+	out[1] = SB[1].convert_to_CATMULLROM4();
 
-	delete[] SB;
-	return SC;
+	return 1;
 }
 
 BEZIER4 CATMULLROM4::convert_to_BEZIER4() const {

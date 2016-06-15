@@ -18,6 +18,7 @@
 #include "lin_alg.h"
 #include "sound.h"
 #include "curve.h"
+#include "timer.h"
 
 bool mouse_locked = false;
 
@@ -177,8 +178,28 @@ void update_data() {
 	vec4 coefs = solve_equation_coefs(points);
 	allocate_static_buf(fmt.num_channels * SND_get_frame_size());
 	get_samples(coefs, &fmt);
-
 	SND_write_to_buffer(sample_buffer);
+
+
+	static int k = 1;
+	if (k) {
+		BEZIER4 B(
+			vec2(0.0, 1.0),
+			vec2(0.0, -1.0),
+			vec2(1.0, -1.0),
+			vec2(1.0, 1.0));
+
+		timer_t timer;
+		float *S1 = B.sample_curve(SND_get_frame_size(), 64);
+		double ms1 = timer.get_ms();
+
+		timer.begin();
+		float *S2 = B.sample_curve_noLUT(SND_get_frame_size(), 64);
+		double ms2 = timer.get_ms();
+		printf("LUT: %f ms, noLUT: %f ms. sample #213: %f, %f\n", ms1, ms2, S1[213], S2[213]);
+	}
+
+	k = 0;
 
 	glUseProgram(wave_shader->getProgramHandle());
 	wave_shader->update_uniform_mat4("coefs_inv", m);
@@ -291,13 +312,16 @@ int init_GL() {
 		vec2(1.0, -1.0),
 		vec2(1.0, 1.0));
 
+
+
 	BEZIER4 split[2];
 	B.split(0.6, &split[0]);
 
 	mat24 lulz[2];
 	lulz[0] = split[0].matrix_repr;
-	split[1].P3 = vec2(0.0, 0.0);
-	split[1].update();
+	//split[1].P2 = vec2(0.95, 3.0);
+	//split[1].P3 = vec2(1.0, -0.7);
+	//split[1].update();
 	lulz[1] = split[1].matrix_repr;
 
 	glGenVertexArrays(1, &bezier_VAOid);

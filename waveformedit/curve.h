@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Windows.h>
+
 #include "lin_alg.h"
 #include <cmath>
 
@@ -65,14 +67,21 @@ struct CATMULLROM4;
 struct BEZIER4 {
 
 	static const mat4 weights;
+	static const mat4 weights_derivative;
 
 	vec2 P0, P1, P2, P3;
 	mat24 points24;
 	mat24 matrix_repr;
-	vec2 evaluate(float t);
-	float dydx(float t, float dt = 0.001);
-	float dxdt(float t, float dt = 0.001);
-	float dydt(float t, float dt = 0.001);
+
+	mat24 derivative_p24;
+	mat24 derivative_mrepr;
+
+	vec2 evaluate(float t) const;
+	float dydx(float t, float dt = 0.001) const;
+	float dxdt(float t, float dt = 0.001) const;
+	float dydt(float t, float dt = 0.001) const;
+
+	vec2 evaluate_derivative(float t) const;
 
 	BEZIER4(const vec2 &aP0, const vec2 &aP1, const vec2 &aP2, const vec2 &aP3);
 	BEZIER4(const mat24 &PV);
@@ -81,7 +90,10 @@ struct BEZIER4 {
 
 	BEZIER4() {}
 	
-	int split(float t, BEZIER4 *out);
+	int split(float t, BEZIER4 *out) const;
+
+	float *sample_curve(UINT32 frame_size, int precision = 8) const;
+	float *sample_curve_noLUT(UINT32 frame_size, int precision = 32) const;
 
 	CATMULLROM4 convert_to_CATMULLROM4() const;
 
@@ -100,7 +112,7 @@ struct CATMULLROM4 {
 	CATMULLROM4(const mat24 &PV, float tension = 1.0);
 	CATMULLROM4() {}
 
-	CATMULLROM4 *split(float s) const;
+	int split(float s, CATMULLROM4 *out) const;
 
 	BEZIER4 convert_to_BEZIER4() const;
 
