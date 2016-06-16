@@ -47,7 +47,7 @@ static bool _main_loop_running = true;
 bool main_loop_running() { return _main_loop_running; }
 void stop_main_loop() { _main_loop_running = false; }
 
-
+static SEGMENTED_BEZIER4 main_bezier;
 
 #define NUM_CURVES 1
 
@@ -148,21 +148,23 @@ void update_data() {
 	while (!SND_initialized()) { Sleep(250); }
 
 	wave_format_t fmt = SND_get_format_info();
-	allocate_static_buf(fmt.num_channels * SND_get_frame_size());
+	//allocate_static_buf(fmt.num_channels * SND_get_frame_size());
 
-	BEZIER4 B(
-		vec2(0.0, cos(3*GT)),
-		vec2(0.33, -2*sin(GT)),
-		vec2(0.5, 3*sin(6*GT)),
-		vec2(1.0, cos(3*GT)));
+	main_bezier.allocate_buffer(fmt.num_channels, SND_get_frame_size());
+	// this won't do anything if it's already allocated
 
-	//float *S1 = B.sample_curve(SND_get_frame_size(), 64);
-	float *S = B.sample_curve_noLUT(SND_get_frame_size(), 256);
+	//main_bezier.move_knot(4, vec2(main_bezier.get_knot(4).x, 1.1*sin(GT)));
+	//main_bezier.move_knot(1, vec2(main_bezier.get_knot(1).x, sin(1.3*GT)));
 
-	SND_write_to_buffer(S);
+	main_bezier.move_cp(6, vec2(main_bezier.get_cp(6).x, sin(GT)));
+	main_bezier.move_cp(10, vec2(main_bezier.get_cp(10).x, 1.3*sin(5*GT)));
+
+
+	main_bezier.update_buffer(32);
+	SND_write_to_buffer(main_bezier.samples);
 
 	glBindBuffer(GL_ARRAY_BUFFER, bezier_VBOid);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, 2 * 4 * sizeof(float), &B.matrix_repr);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, main_bezier.matrix_reprs.size() * 2*4*sizeof(float), &main_bezier.matrix_reprs[0]);
 
 	//glUseProgram(wave_shader->getProgramHandle());
 	//wave_shader->update_uniform_mat4("coefs_inv", m);
@@ -200,7 +202,7 @@ void draw() {
 	glUseProgram(bezier_shader->getProgramHandle());
 	glBindVertexArray(bezier_VAOid);
 	bezier_shader->update_uniform_mat4("uMVP", mvp);
-	glDrawArrays(GL_PATCHES, 0, 1);
+	glDrawArrays(GL_PATCHES, 0, main_bezier.parts.size());
 
 	glBindVertexArray(0);
 
@@ -276,7 +278,7 @@ int init_GL() {
 
 	glGenBuffers(1, &bezier_VBOid);
 	glBindBuffer(GL_ARRAY_BUFFER, bezier_VBOid);
-	glBufferData(GL_ARRAY_BUFFER, 2 * 4 * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, 64 * 2 * 4 * sizeof(float), NULL, GL_DYNAMIC_DRAW);
 
 	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 2*4 * sizeof(float), 0);
 	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 2*4 * sizeof(float), (LPVOID)(4 * sizeof(float)));
@@ -285,10 +287,16 @@ int init_GL() {
 
 	//glDisableVertexAttribArray(ATTRIB_POSITION);
 
+	main_bezier = SEGMENTED_BEZIER4(BEZIER4(vec2(0.0, 0.0), vec2(0.33, -1.0), vec2(0.66, 1.0), vec2(1.0, 0.0)));
+
+	main_bezier.split(0.15);
+	main_bezier.split(0.35);
+	main_bezier.split(0.70);
+	main_bezier.split(0.60);
+
 	update_data();
 
 	return 1;
-
 
 }
 

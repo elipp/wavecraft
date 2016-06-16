@@ -1,9 +1,10 @@
 #pragma once
 
 #include <Windows.h>
-
-#include "lin_alg.h"
 #include <cmath>
+#include <vector>
+#include "lin_alg.h"
+#include "alignment_allocator.h"
 
 struct vec2 {
 	float x, y;
@@ -40,25 +41,6 @@ struct mat24 { // 2 columns, 4 rows
 		return vec2(columns[0](row), columns[1](row));
 	}
 
-	void *operator new(size_t size){
-		void *p;
-		ALIGNED_MALLOC16(p, size);
-		return p;
-	}
-
-	void *operator new[](size_t size) {
-		void *p;
-		ALIGNED_MALLOC16(p, size);
-		return p;
-	}
-
-	void operator delete(void *p) {
-		ALIGNED_FREE(p);
-	}
-
-	void operator delete[](void *p) {
-		ALIGNED_FREE(p);
-	}
 };
 
 struct BEZIER4;
@@ -90,8 +72,6 @@ struct BEZIER4 {
 
 	BEZIER4() {}
 	
-	int split(float t, BEZIER4 *out) const;
-
 	float *sample_curve(UINT32 frame_size, int precision = 8) const;
 	float *sample_curve_noLUT(UINT32 frame_size, int precision = 32) const;
 
@@ -115,5 +95,59 @@ struct CATMULLROM4 {
 	int split(float s, CATMULLROM4 *out) const;
 
 	BEZIER4 convert_to_BEZIER4() const;
+
+};
+
+struct BEZIER4_fragment {
+	mat24 points24;
+	mat24 matrix_repr;
+	float tmin, tmax, tscale, padding0;
+
+	BEZIER4_fragment(const mat24 &a_points24, float a_tmin, float a_tmax);
+
+
+	BEZIER4_fragment() {}
+
+};
+
+struct SEGMENTED_BEZIER4 {
+	std::vector < BEZIER4_fragment, AlignmentAllocator<BEZIER4_fragment, 16>> parts;
+	std::vector < mat24, AlignmentAllocator<mat24, 16>> matrix_reprs;
+
+	float *samples;
+	size_t frame_size;
+
+	int split(float at_t); // this is the primary method for using this thing
+
+	int move_knot(int index, const vec2 &new_position); 
+	// knot = the first and last CP of every segment. Whether they need to be congruent will depend on how this is implemented.
+	// "knot at index n" will refer to the first CP of the n-th segment, and 4th CP of the n-1:th segment (if it exists).
+
+	int move_cp(int index, const vec2 &new_position);
+
+	vec2 evaluate(float t) const; // evaluate the segmented curve at t = t (will need to look up which curve has that t value within its range)
+
+	vec2 get_knot(int index) const; 
+	vec2 get_cp(int index) const;
+
+	SEGMENTED_BEZIER4(const BEZIER4 &master) {	
+		BEZIER4_fragment f;
+		f.matrix_repr = master.matrix_repr;
+		f.points24 = master.points24;
+		f.tmin = 0;
+		f.tmax = 1;
+		f.tscale = 1;
+		parts.push_back(f);
+		matrix_reprs.push_back(f.matrix_repr);
+		samples = NULL;
+		frame_size = 0;
+	}
+
+	SEGMENTED_BEZIER4() {}
+
+
+
+	int allocate_buffer(int num_channels, size_t framesize);
+	int update_buffer(int precision = 32);
 
 };

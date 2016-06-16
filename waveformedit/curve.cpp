@@ -11,6 +11,8 @@ inline void print_mat4(const mat4 &M) {
 	printf("\n");
 }
 
+static int split_bezier(float t, const mat24& points24, BEZIER4_fragment *out);
+
 const mat4 BEZIER4::weights = mat4(
 	vec4(1, -3, 3, -1), 
 	vec4(0, 3, -6, 3), 
@@ -140,55 +142,6 @@ BEZIER4::BEZIER4(const mat24 &PV)
 	derivative_mrepr = multiply44_24(BEZIER4::weights_derivative, derivative_p24);
 };
 
-int BEZIER4::split(float t, BEZIER4 *out) const {
-	if (t < 0.0 || t > 1.0) {
-		return 0;
-	}
-
-	float tm1 = t - 1;
-	float tm2 = tm1*tm1;
-	float tm3 = tm2*tm1;
-
-	float t2 = t*t;
-	float t3 = t2*t;
-
-	// Refer to http://pomax.github.io/bezierinfo/, §10: Splitting curves using matrices.
-
-	mat4 first(
-		vec4(1, -tm1, tm2, -tm3),
-		vec4(0, t, -2 * (tm1)*t, 3 * tm2*t),
-		vec4(0, 0, t2, -3 * tm1*t2),
-		vec4(0, 0, 0, t3)
-		);
-
-
-	print_mat4(first);
-
-	mat4 tmp = first.transposed();
-
-	print_mat4(tmp);
-
-	// lulz, might be faster (also a lot clearer) just to directly set the second matrix XD
-
-	mat4 second = mat4(
-		tmp.column(3),
-		vec4(_mm_shuffle_ps(tmp.column(2).getData(), tmp.column(2).getData(), _MM_SHUFFLE(2,1,0,3))),
-		vec4(_mm_shuffle_ps(tmp.column(1).getData(), tmp.column(1).getData(), _MM_SHUFFLE(1,0,3,2))),
-		vec4(_mm_shuffle_ps(tmp.column(0).getData(), tmp.column(0).getData(), _MM_SHUFFLE(0,3,2,1)))
-		)
-		.transposed();
-
-	print_mat4(second);
-
-	mat24 C1 = multiply44_24(first, this->points24);
-	mat24 C2 = multiply44_24(second, this->points24);
-
-	out[0] = BEZIER4(C1);
-	out[1] = BEZIER4(C2);
-
-	return 1;
-	
-}
 
 CATMULLROM4 BEZIER4::convert_to_CATMULLROM4() const {
 	return CATMULLROM4(
@@ -340,16 +293,16 @@ vec2 CATMULLROM4::evaluate(float s) {
 
 int CATMULLROM4::split(float s, CATMULLROM4 *out) const {
 
-	if (s < 0 || s > 1.0) return 0;
+	//if (s < 0 || s > 1.0) return 0;
 
-	BEZIER4 B = this->convert_to_BEZIER4();
-	BEZIER4 SB[2];
-	B.split(s, &SB[0]);
+	//BEZIER4 B = this->convert_to_BEZIER4();
+	//BEZIER4 SB[2];
+	//B.split(s, &SB[0]);
 
-	// no idea if this is correct or not XD
+	//// no idea if this is correct or not XD
 
-	out[0] = SB[0].convert_to_CATMULLROM4();
-	out[1] = SB[1].convert_to_CATMULLROM4();
+	//out[0] = SB[0].convert_to_CATMULLROM4();
+	//out[1] = SB[1].convert_to_CATMULLROM4();
 
 	return 1;
 }
@@ -361,5 +314,240 @@ BEZIER4 CATMULLROM4::convert_to_BEZIER4() const {
 		P1 + coef*(P2 - P0),
 		P2 + coef*(P3 - P1),
 		P2);
+
+}
+
+
+BEZIER4_fragment::BEZIER4_fragment(const mat24 &a_points24, float a_tmin, float a_tmax) 
+: tmin(a_tmin), tmax(a_tmax) {
+	points24 = a_points24;
+	matrix_repr = multiply44_24(BEZIER4::weights, points24);
+	tscale = 1.0 / (tmax - tmin);
+}
+
+static int split_bezier(float t, const mat24 &points24, BEZIER4_fragment *out) {
+	if (t < 0.0 || t > 1.0) {
+		return 0;
+	}
+
+	float tm1 = t - 1;
+	float tm2 = tm1*tm1;
+	float tm3 = tm2*tm1;
+
+	float t2 = t*t;
+	float t3 = t2*t;
+
+	// Refer to http://pomax.github.io/bezierinfo/, §10: Splitting curves using matrices.
+
+	mat4 first(
+		vec4(1, -tm1, tm2, -tm3),
+		vec4(0, t, -2 * (tm1)*t, 3 * tm2*t),
+		vec4(0, 0, t2, -3 * tm1*t2),
+		vec4(0, 0, 0, t3)
+		);
+
+
+	mat4 tmp = first.transposed();
+
+	// lulz, might be faster (also a lot clearer) just to directly set the second matrix XD
+
+	mat4 second = mat4(
+		tmp.column(3),
+		vec4(_mm_shuffle_ps(tmp.column(2).getData(), tmp.column(2).getData(), _MM_SHUFFLE(2, 1, 0, 3))),
+		vec4(_mm_shuffle_ps(tmp.column(1).getData(), tmp.column(1).getData(), _MM_SHUFFLE(1, 0, 3, 2))),
+		vec4(_mm_shuffle_ps(tmp.column(0).getData(), tmp.column(0).getData(), _MM_SHUFFLE(0, 3, 2, 1)))
+		)
+		.transposed();
+
+	mat24 C1 = multiply44_24(first, points24);
+	mat24 C2 = multiply44_24(second, points24);
+
+	// out[0] range: [0; t[,
+	// out[1] range: [t; 1]
+
+	out[0] = BEZIER4_fragment(C1, 0, nextafter(t, 0.0)); // the float right before t
+	out[1] = BEZIER4_fragment(C2, t, 1.0);
+
+	return 1;
+}
+
+
+int SEGMENTED_BEZIER4::split(float at_t) {
+	// first we need to look up which one of the curves has this t.
+	BEZIER4_fragment *frag = NULL;
+
+	for (auto &c : parts) {
+		if (c.tmin <= at_t && c.tmax > at_t) {
+			frag = &c;
+			break;
+		}
+	}
+
+	if (!frag) {
+		printf("SEGMENTED_BEZIER4::split: error: didn't find valid segment for t = %f\n", at_t);
+		return 0;
+	}
+
+	BEZIER4_fragment split[2];
+
+	// the t's will need to be scaled with tscale
+
+	// tscale is 1.0 / (delta T)
+
+	float t_local = (1.0 - (frag->tmax - at_t) * frag->tscale);
+
+	split_bezier(t_local, frag->points24, &split[0]);
+
+	// and now, the fragments' tmin and tmax will need to be scaled to fit the whole curve
+
+	split[0].tmin = frag->tmin;
+	split[0].tmax = nextafter(at_t, 0.0);
+	split[0].tscale = 1.0 / (split[0].tmax - split[0].tmin);
+
+	split[1].tmin = at_t;
+	split[1].tmax = frag->tmax;
+	split[1].tscale = 1.0 / (split[1].tmax - split[1].tmin);
+
+	size_t offset = frag - &(*parts.begin());
+
+	// then insert into curve
+
+	// replace the previous fragment
+	*frag = split[0];
+	matrix_reprs[offset] = split[0].matrix_repr;
+
+	parts.insert(parts.begin() + (offset + 1), split[1]);
+	matrix_reprs.insert(matrix_reprs.begin() + (offset + 1), split[1].matrix_repr);
+
+	printf("SEGMENTED_BEZIER::split: splitting curve at t = %f, which falls under the segment %lu.\nGot local_t = %f, \ns0 range: [%f, %f[ \ns1 range: [%f, %f], parts.size() = %d\n",
+		at_t, offset, t_local, split[0].tmin, split[0].tmax, split[1].tmin, split[1].tmax, parts.size());
+
+	return 1;
+}
+
+int SEGMENTED_BEZIER4::move_knot(int index, const vec2 &p) {
+	if (index > parts.size()) {
+		printf("SEGMENTED_BEZIER4::move_knot: error: requested index > num segments (%d > %d).\n", index, parts.size());
+		return 0;
+	}
+	
+	auto &s = parts[index];
+
+	s.points24.columns[0].assign(0, p.x);
+	s.points24.columns[1].assign(0, p.y);
+
+	s.matrix_repr = multiply44_24(BEZIER4::weights, s.points24);
+	matrix_reprs[index] = s.matrix_repr;
+
+	if (index > 0) {
+		auto &sp = parts[index - 1];
+		sp.points24.columns[0].assign(3, p.x);
+		sp.points24.columns[1].assign(3, p.y);
+		sp.matrix_repr = multiply44_24(BEZIER4::weights, sp.points24);
+		matrix_reprs[index-1] = sp.matrix_repr;
+
+	}
+
+	return 1;
+}
+
+vec2 SEGMENTED_BEZIER4::get_knot(int index) const {
+	if (index > parts.size()) {
+		printf("SEGMENTED_BEZIER4::get_knot: error: requested index > num segments (%d > %d).\n", index, parts.size());
+		return vec2(0, 0);
+	}
+
+	auto &s = parts[index];
+
+	return s.points24.row(0);
+}
+
+vec2 SEGMENTED_BEZIER4::get_cp(int index) const {
+	int mod = index % 4;
+	int seg = index / 4;
+
+	return parts[seg].points24.row(mod);
+}
+
+
+int SEGMENTED_BEZIER4::move_cp(int index, const vec2 &newp) {
+
+	int mod = index % 4;
+	int seg = index / 4;
+	if (mod == 0 || mod == 3) {
+		printf("SEGMENTED_BEZIER4::move_cp: attempted to call move_cp on a knot point (index %d), ignoring\n", index);
+		return 0;
+	}
+
+	BEZIER4_fragment &p = parts[seg];
+	p.points24.columns[0].assign(mod, newp.x);
+	p.points24.columns[1].assign(mod, newp.y);
+
+	p.matrix_repr = multiply44_24(BEZIER4::weights, p.points24);
+
+	matrix_reprs[seg] = p.matrix_repr;
+
+	return 1;
+}
+
+vec2 SEGMENTED_BEZIER4::evaluate(float t) const {
+
+	const BEZIER4_fragment *frag = NULL;
+
+	for (const auto &c : parts) {
+		if (c.tmin <= t && c.tmax > t) {
+			frag = &c;
+			break;
+		}
+	}
+
+	if (!frag) {
+		printf("SEGMENTED_BEZIER4::evaluate: error: didn't find valid segment for t = %f\n", t);
+		return vec2(0, 0);
+	}
+
+	float lt = 1 - (frag->tmax - t)*frag->tscale;
+
+	float lt2 = lt*lt;
+	float lt3 = lt2*lt;
+	vec4 tv(1, lt, lt2, lt3);
+
+	return multiply4_24(tv, frag->matrix_repr);
+
+}
+
+
+
+int SEGMENTED_BEZIER4::allocate_buffer(int num_channels, size_t framesize) {
+	if (framesize != this->frame_size && this->samples == NULL) {
+		this->frame_size = framesize;
+		samples = new float[num_channels * framesize];
+	}
+
+	return 1;
+}
+
+int SEGMENTED_BEZIER4::update_buffer(int precision) {
+
+	const float dx = 1.0 / (float)frame_size;
+	const float dt = 1.0 / ((float)frame_size * precision);
+	float t = 0;
+
+	int buff_offset = 0;
+	for (int i = 0; i < frame_size; ++i) {
+		float target_x = i * dx;
+		vec2 p = evaluate(t);
+
+		while (p.x < target_x) {
+			t += dt;
+			p = evaluate(t);
+		}
+
+		samples[2 * i] = p.y;
+		samples[2 * i + 1] = p.y;
+
+	}
+
+	return 1;
 
 }
