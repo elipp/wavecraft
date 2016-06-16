@@ -33,7 +33,7 @@ const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
 const IID IID_IAudioClient = __uuidof(IAudioClient);
 const IID IID_IAudioRenderClient = __uuidof(IAudioRenderClient);
 
-#define SMPL_TYPE short
+#define SMPL_TYPE float
 
 static wave_format_t wformat;
 static UINT32 frame_size;
@@ -56,7 +56,8 @@ int SND_initialized() {
 
 size_t SND_write_to_buffer(const float *data) {
 	// data should contain 2*frame_size worth of floats normalized to [-1;1]
-	float max = (std::numeric_limits<short>::max)();
+	//float max = (std::numeric_limits<short>::max)();
+	float max = 1.0;
 	
 	main_buffer_lock.lock();
 
@@ -75,13 +76,13 @@ size_t SND_write_to_buffer(const float *data) {
 
 static int construct_wave_format_info(int samplerate, int nchannels, int bitdepth, WAVEFORMATEX *WFEX, wave_format_t *wft) {
 
-	WFEX->wFormatTag = WAVE_FORMAT_PCM;
+	/*WFEX->wFormatTag = WAVE_FORMAT_PCM;
 	WFEX->nChannels = nchannels;
 	WFEX->nSamplesPerSec = samplerate;
 	WFEX->nAvgBytesPerSec = samplerate * 2 * bitdepth / 8;
 	WFEX->nBlockAlign = 2 * bitdepth / 8;
 	WFEX->wBitsPerSample = bitdepth;
-
+*/
 	wft->num_channels = nchannels;
 	wft->sample_rate = samplerate;
 	wft->bit_depth = bitdepth;
@@ -117,7 +118,8 @@ static HRESULT find_smallest_128_aligned(IMMDevice *pDevice, IAudioClient *pAudi
 
 	REFERENCE_TIME hnsPeriod = (REFERENCE_TIME)(REFTIMES_PER_SEC * (float)n / (float)wave_format->nSamplesPerSec + 0.5);
 
-	hr = pAudioClient->Initialize(AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, hnsPeriod, hnsPeriod, wave_format, NULL);
+//	hr = pAudioClient->Initialize(AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, hnsPeriod, hnsPeriod, wave_format, NULL);
+	hr = pAudioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, NULL, hnsPeriod, NULL, wave_format, NULL);
 
 	if (FAILED(hr)) {
 		printf("IAudioClient::Initialize(): failed to set device period to minimum 128-byte-aligned value (%lld === %.4f ms), aborting.\n", hnsPeriod, (float)hnsPeriod / 10000.0);
@@ -141,8 +143,7 @@ HRESULT PlayAudioStream() {
 	DWORD flags = 0;
 	HANDLE hEvent = NULL;
 	HANDLE hTask = NULL;
-
-	WAVEFORMATEX wave_format = {};
+	WAVEFORMATEX *pwfx;
 
 	hr = CoInitialize(NULL);
 	IF_ERROR_EXIT(hr);
@@ -156,33 +157,41 @@ HRESULT PlayAudioStream() {
 	hr = pDevice->Activate(IID_IAudioClient, CLSCTX_ALL, NULL, (void**)&pAudioClient);
 	IF_ERROR_EXIT(hr);
 
-	construct_wave_format_info(48000, 2, 16, &wave_format, &wformat);
 
-	hr = pAudioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, &wave_format, NULL);
+	//hr = pAudioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, &wave_format, NULL);
+	hr = pAudioClient->GetMixFormat(&pwfx);
+	WAVEFORMATEX *temp;
+	IF_ERROR_EXIT(hr);
 
+	construct_wave_format_info(44100, 2, 32, pwfx, &wformat);
+
+
+	printf("sound: local mix format is %d-bit, %d-channel @ %d Hz\n", pwfx->wBitsPerSample, pwfx->nChannels, pwfx->nSamplesPerSec);
+
+	hr = pAudioClient->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, pwfx, &temp);
 	if (AUDCLNT_E_UNSUPPORTED_FORMAT == hr) {
-		printf("WASAPI: default audio device does not support the requested WAVEFORMATEX (%d/%dch/%d bit)\n", wave_format.nSamplesPerSec, wave_format.nChannels, wave_format.wBitsPerSample);
+		printf("WASAPI: default audio device does not support the requested WAVEFORMATEX (%d/%dch/%d bit)\n", pwfx->nSamplesPerSec, pwfx->nChannels, pwfx->wBitsPerSample);
 		pAudioClient->Release();
 		return hr;
 	}
 
 	IF_ERROR_EXIT(hr);
-	hr = find_smallest_128_aligned(pDevice, pAudioClient, &wave_format);
+	hr = find_smallest_128_aligned(pDevice, pAudioClient, pwfx);
 	IF_ERROR_EXIT(hr);
 	
 	hr = pAudioClient->GetBufferSize(&frame_size);
 	IF_ERROR_EXIT(hr);
 
-	INT32 frame_size_bytes = frame_size * wave_format.nChannels * wave_format.wBitsPerSample / 8;
+	INT32 frame_size_bytes = frame_size * pwfx->nChannels * pwfx->wBitsPerSample / 8;
 
 	hr = pAudioClient->GetService(IID_IAudioRenderClient, (void**)&pRenderClient);
 	IF_ERROR_EXIT(hr);
 
-	hEvent = CreateEvent(nullptr, false, false, nullptr);
-	if (hEvent == INVALID_HANDLE_VALUE) { printf("CreateEvent failed\n");  return -1; }
+	//hEvent = CreateEvent(nullptr, false, false, nullptr);
+	//if (hEvent == INVALID_HANDLE_VALUE) { printf("CreateEvent failed\n");  return -1; }
 	
-	hr = pAudioClient->SetEventHandle(hEvent);
-	IF_ERROR_EXIT(hr);
+//	hr = pAudioClient->SetEventHandle(hEvent);
+	//IF_ERROR_EXIT(hr);
 
 
 	const size_t num_samples = frame_size_bytes / sizeof(SMPL_TYPE);
@@ -193,9 +202,9 @@ HRESULT PlayAudioStream() {
 	float min = (float)(std::numeric_limits<SMPL_TYPE>::min)();
 	float max = (float)(std::numeric_limits<SMPL_TYPE>::max)();
 	float halfmax = max / 2.0;
-	float dt = 1.0 / (float)wave_format.nSamplesPerSec;
+	float dt = 1.0 / (float)pwfx->nSamplesPerSec;
 
-	float freq = 2*(float)wave_format.nSamplesPerSec / (float)frame_size;
+	float freq = 2*(float)pwfx->nSamplesPerSec / (float)frame_size;
 
 	wformat.wave_freq = freq;
 	wformat.cycle_duration_ms = 1.0 / freq * 1000.0;
@@ -226,6 +235,9 @@ HRESULT PlayAudioStream() {
 		IF_ERROR_EXIT(hr);
 	}
 
+	double buffer_length_ms = (double)REFTIMES_PER_MILLISEC *
+		(double)frame_size / (double)pwfx->nSamplesPerSec;
+
 	sound_system_initialized = 1;
 
 	hr = pAudioClient->Start();  // Start playing.
@@ -233,13 +245,20 @@ HRESULT PlayAudioStream() {
 
 	while (wfedit_running()) {
 
-		WaitForSingleObject(hEvent, INFINITE);
+		UINT32 padding;
 
-		hr = pRenderClient->GetBuffer(frame_size, &pData);
+		Sleep(buffer_length_ms / 2.0);
+
+		hr = pAudioClient->GetCurrentPadding(&padding);
 		IF_ERROR_EXIT(hr);
 
+		hr = pRenderClient->GetBuffer(padding, &pData);
+		IF_ERROR_EXIT(hr);
+
+		size_t to_write = frame_size - padding;
+
 		main_buffer_lock.lock();
-		memcpy(pData, main_buffer, frame_size_bytes);
+		memcpy(pData, &main_buffer[2*padding], to_write*2*sizeof(float));
 		main_buffer_lock.unlock();
 
 		hr = pRenderClient->ReleaseBuffer(frame_size, 0);

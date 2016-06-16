@@ -157,7 +157,7 @@ void update_data() {
 		vec2(1.0, cos(3*GT)));
 
 	//float *S1 = B.sample_curve(SND_get_frame_size(), 64);
-	float *S = B.sample_curve_noLUT(SND_get_frame_size(), 256);
+	float *S = B.sample_curve_noLUT(SND_get_frame_size(), 16);
 
 	SND_write_to_buffer(S);
 

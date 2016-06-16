@@ -117,3 +117,16 @@ struct CATMULLROM4 {
 	BEZIER4 convert_to_BEZIER4() const;
 
 };
+
+struct BEZIER_PART {
+	mat24 cpoints;
+	mat24 matrix_repr;
+	float tmin, tmax, padding1, padding2;
+};
+
+struct BEZIERWAVE {
+	BEZIER_PART *parts;
+	size_t num_parts;
+	int add(const BEZIER4 &b);
+
+};
