@@ -112,7 +112,8 @@ struct BEZIER4_fragment {
 
 struct SEGMENTED_BEZIER4 {
 	std::vector < BEZIER4_fragment, AlignmentAllocator<BEZIER4_fragment, 16>> parts;
-	std::vector < mat24, AlignmentAllocator<mat24, 16>> matrix_reprs;
+	std::vector < mat24, AlignmentAllocator<mat24, 16>> matrix_reprs; // this is needed for shaders/bezier
+	std::vector<vec2> points; // this is needed for shaders/pointplot
 
 	float *samples;
 	size_t frame_size;
@@ -124,6 +125,43 @@ struct SEGMENTED_BEZIER4 {
 	// "knot at index n" will refer to the first CP of the n-th segment, and 4th CP of the n-1:th segment (if it exists).
 
 	int move_cp(int index, const vec2 &new_position);
+
+	void points_push4(const mat24 &p) {
+		points.push_back(p.row(0));
+		points.push_back(p.row(1));
+		points.push_back(p.row(2));
+		points.push_back(p.row(3));
+		printf("points_push4: points.size() = %d\n", (int)points.size());
+	}
+
+	void points_replace4(int index, const mat24 &p) {
+		
+		for (int i = 0; i < 4; ++i) {
+		//	printf("replaced point %d (%.3f, %.3f) with point (%.3f, %.3f)\n", index * 4 + i, points[index * 4 + i].x, points[index * 4 +i].y, p.row(i).x, p.row(i).y);
+			points[index * 4 + i] = p.row(i);
+		}
+		//printf("points_replace4: points.size() = %d\n", (int)points.size());
+	}
+
+	void points_insert4(int index, const mat24 &p) {
+		printf("points before insert4 (index %d):\n", index);
+
+		for (auto &p : points) {
+			printf("(%.3f, %.3f)\n", p.x, p.y);
+		}
+
+		vec2 rows[4] = { p.row(0), p.row(1), p.row(2), p.row(3) };
+		// lol this is weird af, but insert doesn't include the element pointed to by the iterator "last". so effectively inserting 0, 1, 2, 3 but NOT 4
+		points.insert(points.begin() + 4 * index, &rows[0], &rows[4]);
+		printf("points_insert4: points.size() = %d\n", (int)points.size());
+	
+		printf("points AFTER insert4:\n");
+
+		for (auto &p : points) {
+			printf("(%.3f, %.3f)\n", p.x, p.y);
+		}
+
+	}
 
 	vec2 evaluate(float t) const; // evaluate the segmented curve at t = t (will need to look up which curve has that t value within its range)
 
@@ -139,13 +177,12 @@ struct SEGMENTED_BEZIER4 {
 		f.tscale = 1;
 		parts.push_back(f);
 		matrix_reprs.push_back(f.matrix_repr);
+		points_push4(f.points24);
 		samples = NULL;
 		frame_size = 0;
 	}
 
 	SEGMENTED_BEZIER4() {}
-
-
 
 	int allocate_buffer(int num_channels, size_t framesize);
 	int update_buffer(int precision = 32);

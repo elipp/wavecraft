@@ -413,11 +413,13 @@ int SEGMENTED_BEZIER4::split(float at_t) {
 	// then insert into curve
 
 	// replace the previous fragment
-	*frag = split[0];
+	parts[offset] = split[0];
 	matrix_reprs[offset] = split[0].matrix_repr;
+	points_replace4(offset, split[0].points24);
 
 	parts.insert(parts.begin() + (offset + 1), split[1]);
 	matrix_reprs.insert(matrix_reprs.begin() + (offset + 1), split[1].matrix_repr);
+	points_insert4(offset + 1, split[1].points24);
 
 	printf("SEGMENTED_BEZIER::split: splitting curve at t = %f, which falls under the segment %lu.\nGot local_t = %f, \ns0 range: [%f, %f[ \ns1 range: [%f, %f], parts.size() = %d\n",
 		at_t, offset, t_local, split[0].tmin, split[0].tmax, split[1].tmin, split[1].tmax, parts.size());
@@ -438,6 +440,7 @@ int SEGMENTED_BEZIER4::move_knot(int index, const vec2 &p) {
 
 	s.matrix_repr = multiply44_24(BEZIER4::weights, s.points24);
 	matrix_reprs[index] = s.matrix_repr;
+	points_replace4(index, s.points24); // this has the disadvantage of copying the 3 unchanged vec2s, but it looks neat
 
 	if (index > 0) {
 		auto &sp = parts[index - 1];
@@ -445,7 +448,7 @@ int SEGMENTED_BEZIER4::move_knot(int index, const vec2 &p) {
 		sp.points24.columns[1].assign(3, p.y);
 		sp.matrix_repr = multiply44_24(BEZIER4::weights, sp.points24);
 		matrix_reprs[index-1] = sp.matrix_repr;
-
+		points_replace4(index - 1, sp.points24);
 	}
 
 	return 1;
@@ -486,6 +489,7 @@ int SEGMENTED_BEZIER4::move_cp(int index, const vec2 &newp) {
 	p.matrix_repr = multiply44_24(BEZIER4::weights, p.points24);
 
 	matrix_reprs[seg] = p.matrix_repr;
+	points_replace4(seg, p.points24);
 
 	return 1;
 }
