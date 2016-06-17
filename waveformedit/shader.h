@@ -1,7 +1,7 @@
 #ifndef SHADER_H
 #define SHADER_H
 
-#include "glext_loader.h"
+#include "glwindow.h"
 
 #include <fstream>
 #include <cstring> // for memset and stuff

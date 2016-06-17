@@ -1,4 +1,3 @@
-#include "glext_loader.h"
 #include "shader.h"
 #include "lin_alg.h"
 

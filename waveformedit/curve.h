@@ -3,6 +3,9 @@
 #include <Windows.h>
 #include <cmath>
 #include <vector>
+
+#include "glwindow.h"
+
 #include "lin_alg.h"
 #include "alignment_allocator.h"
 
@@ -26,7 +29,7 @@ struct vec2 {
 vec2 operator*(float c, const vec2& v);
 vec2 operator*(const vec2& v, float c);
 
-__declspec(align(16))
+//__declspec(align(16))
 struct mat24 { // 2 columns, 4 rows
 	vec4 columns[2];
 	

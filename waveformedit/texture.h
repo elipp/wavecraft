@@ -1,6 +1,6 @@
 #pragma once
 
-#include "glext_loader.h"
+#include "glwindow.h"
 
 #define IS_POWER_OF_TWO(x) ((x) & ((x) - 1))
 

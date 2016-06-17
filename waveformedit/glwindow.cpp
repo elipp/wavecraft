@@ -64,30 +64,6 @@ void set_cursor_relative_pos(int x, int y) {
 
 static std::string *convertLF_to_CRLF(const char *buf);
 
-void swap_buffers() {
-	SwapBuffers(hDC);
-}
-
-int generate_vertices(float *samples, size_t num_samples) {
-
-	static const float dx = 1.0;
-	static const float w = 0.5;
-	float dy = samples[1] - samples[0];
-
-	float x = 0;
-
-	float k = dy / dx;
-
-	float alpha = atan(k);
-
-	vec4 a(w*sin(alpha), -w*cos(alpha), 0, 0);
-	vec4 orig_p(x, samples[0], 0, 0);
-
-	vec4 p1 = orig_p + a;
-	vec4 p2 = orig_p - a;
-
-	return 0;
-}
 
 vec4 solve_equation_coefs(const float *points) {
 
@@ -166,10 +142,10 @@ void update_data() {
 	SND_write_to_buffer(main_bezier.samples);
 
 	glBindBuffer(GL_ARRAY_BUFFER, bezier_VBOid);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, main_bezier.matrix_reprs.size() * 2*4*sizeof(float), &main_bezier.matrix_reprs[0]);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, main_bezier.matrix_reprs.size() * sizeof(mat24), &main_bezier.matrix_reprs[0]);
 
 	glBindBuffer(GL_ARRAY_BUFFER, point_VBOid);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, main_bezier.points.size() * 2 * sizeof(float), &main_bezier.points[0]);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, main_bezier.points.size() * sizeof(vec2), &main_bezier.points[0]);
 
 
 	static int k = 1;
@@ -204,20 +180,21 @@ void draw() {
 
 	update_data();
 
-	glUseProgram(grid_shader->getProgramHandle());
-	grid_shader->update_uniform_1f("tess_level", 5);
-	grid_shader->update_uniform_mat4("uMVP", mvp);
-	glDrawArrays(GL_PATCHES, 0, 1);
-
 	glUseProgram(bezier_shader->getProgramHandle());
 	glBindVertexArray(bezier_VAOid);
 	bezier_shader->update_uniform_mat4("uMVP", mvp);
 	glDrawArrays(GL_PATCHES, 0, main_bezier.parts.size());
 
+	glUseProgram(grid_shader->getProgramHandle());
+	grid_shader->update_uniform_1f("tess_level", 5);
+	grid_shader->update_uniform_mat4("uMVP", mvp);
+	glDrawArrays(GL_PATCHES, 0, 1);
+
 	glUseProgram(point_shader->getProgramHandle());
 	glBindVertexArray(point_VAOid);
 	point_shader->update_uniform_mat4("uMVP", mvp);
 	glDrawArrays(GL_POINTS, 0, main_bezier.points.size());
+	
 	glBindVertexArray(0);
 
 	/*grid_shader->update_uniform_1f("tess_level", 22);
@@ -229,17 +206,11 @@ void draw() {
 
 int init_GL() {
 
-	if (!load_GL_extensions()) {
-		return 0;
-	}
-
 	glClearColor(0.0, 0.0, 0.0, 1.0);
 	glEnable(GL_DEPTH_TEST);
 
 	//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	//glEnable(GL_BLEND);
-
-	wglSwapIntervalEXT(1);
 
 	glViewport(0, 0, WIN_W, WIN_H);
 
@@ -300,16 +271,24 @@ int init_GL() {
 
 	glBindVertexArray(0);
 
-	glGenBuffers(1, &point_VAOid);
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+
+	glGenVertexArrays(1, &point_VAOid);
 	glBindVertexArray(point_VAOid);
+
+	glEnableVertexAttribArray(0);
 
 	glGenBuffers(1, &point_VBOid);
 	glBindBuffer(GL_ARRAY_BUFFER, point_VBOid);
 	glBufferData(GL_ARRAY_BUFFER, 4*64 * sizeof(vec2), NULL, GL_DYNAMIC_DRAW);
 
-	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(vec2), 0);
+	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, 0);
 
 	glBindVertexArray(0);
+
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
 
 	main_bezier = SEGMENTED_BEZIER4(BEZIER4(vec2(0.0, 0.0), vec2(0.33, -1.0), vec2(0.66, 1.0), vec2(1.0, 0.0)));
 
@@ -324,256 +303,40 @@ int init_GL() {
 
 }
 
-
-LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-#define BIT_SET(var,pos) ((var) & (1<<(pos)))
-	switch (uMsg)
-	{
-	case WM_ACTIVATE:
-		if (!HIWORD(wParam)) { active = TRUE; }
-		else {
-			active = FALSE;
-			mouse_locked = false;
-		}
-		break;
-
-	case WM_SYSCOMMAND:
-		switch (wParam)
-		{
-		case SC_SCREENSAVE:
-		case SC_KEYMENU:
-			if ((lParam >> 16) <= 0) return 0;
-			else return DefWindowProc(hWnd, uMsg, wParam, lParam);
-		case SC_MONITORPOWER:
-			return 0;
-		}
-		break;
-
-	case WM_CLOSE:
-		kill_GL_window();
-		PostQuitMessage(0);
-		break;
-
-	case WM_CHAR:
-		//handle_char_input(wParam);
-		break;
-
-	case WM_KEYDOWN:
-		//handle_key_press(wParam);
-		break;
-
-	case WM_KEYUP:
-		//keys[wParam] = false;
-		break;
-
-	case WM_SIZE:
-		//resize_GL_scene(LOWORD(lParam), HIWORD(lParam));
-		break;
-
-	default:
-		break;
-	}
-	return DefWindowProc(hWnd, uMsg, wParam, lParam);
+static void error_callback(int error, const char* description)
+{
+	printf("GLFW error: %s\n", description);
+}
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+		glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
 
+GLFWwindow *create_GL_window(const char* title, int width, int height) {
+	GLFWwindow* window;
 
-void messagebox_error(const std::string &msg) {
-	MessageBox(NULL, msg.c_str(), "Error (fatal)", MB_OK | MB_ICONEXCLAMATION);
-}
+	glfwSetErrorCallback(error_callback);
 
-int create_GL_window(const char* title, int width, int height) {
-	hInstance = GetModuleHandle(NULL);
+	if (!glfwInit())
+		return 0;
 
-	GLuint PixelFormat;
-	WNDCLASS wc;
-	DWORD dwExStyle;
-	DWORD dwStyle;
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	RECT WindowRect;
-	WindowRect.left = (long)0;
-	WindowRect.right = (long)width;
-	WindowRect.top = (long)0;
-	WindowRect.bottom = (long)height;
+	window = glfwCreateWindow(width, height, title, NULL, NULL);
 
-
-	fullscreen = false;
-
-	//hInstance = GetModuleHandle(NULL);
-	wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-	wc.lpfnWndProc = (WNDPROC)WndProc;
-	wc.cbClsExtra = 0;
-	wc.cbWndExtra = 0;
-	wc.hInstance = hInstance;
-	wc.hIcon = LoadIcon(NULL, IDI_WINLOGO);
-	wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-	wc.hbrBackground = NULL;
-	wc.lpszMenuName = NULL;
-	wc.lpszClassName = "OpenGL";
-
-	if (!RegisterClass(&wc))
-	{
-		MessageBox(NULL, "FAILED TO REGISTER THE WINDOW CLASS.", "ERROR", MB_OK | MB_ICONEXCLAMATION);
-		return FALSE;
+	if (!window) {
+		glfwTerminate();
+		return 0;
 	}
 
-	DEVMODE dmScreenSettings;
-	memset(&dmScreenSettings, 0, sizeof(dmScreenSettings));
-	dmScreenSettings.dmSize = sizeof(dmScreenSettings);
-	dmScreenSettings.dmPelsWidth = width;
-	dmScreenSettings.dmPelsHeight = height;
-	dmScreenSettings.dmBitsPerPel = 32;
-	dmScreenSettings.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
+	glfwSetKeyCallback(window, key_callback);
 
-	/*
-	* no need to test this now that fullscreen is turned off
-	*
-	if (ChangeDisplaySettings(&dmScreenSettings, CDS_FULLSCREEN) != DISP_CHANGE_SUCCESSFUL)
-	{
-	if (MessageBox(NULL, "The requested fullscreen mode is not supported by\nyour video card. Use Windowed mode instead?", "warn", MB_YESNO | MB_ICONEXCLAMATION)==IDYES)
-	{
-	fullscreen=FALSE;
-	}
-	else {
+	glfwMakeContextCurrent(window);
+	gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+	glfwSwapInterval(1);
 
-	MessageBox(NULL, "Program willl now close.", "ERROR", MB_OK|MB_ICONSTOP);
-	return FALSE;
-	}
-	}*/
-
-	if (fullscreen)
-	{
-		dwExStyle = WS_EX_APPWINDOW;
-		dwStyle = WS_POPUP;
-
-	}
-
-	else {
-		dwExStyle = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-		dwStyle = WS_OVERLAPPEDWINDOW;
-	}
-
-	AdjustWindowRectEx(&WindowRect, dwStyle, FALSE, dwExStyle);
-
-	hWnd = CreateWindowEx(dwExStyle, "OpenGL", title, WS_CLIPSIBLINGS | WS_CLIPCHILDREN | dwStyle, 0, 0,
-		WindowRect.right - WindowRect.left, WindowRect.bottom - WindowRect.top,
-		NULL, NULL, hInstance, NULL);
-
-	if (hWnd == NULL) {
-		MessageBox(NULL, "window creation error.", "ERROR", MB_OK | MB_ICONEXCLAMATION);
-		return FALSE;
-	}
-
-
-	static PIXELFORMATDESCRIPTOR pfd =
-	{
-		sizeof(PIXELFORMATDESCRIPTOR),
-		1,
-		PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
-		PFD_TYPE_RGBA,
-		32,
-		0, 0, 0, 0, 0, 0,
-		0,
-		0,
-		0,
-		0, 0, 0, 0,
-		24,
-		0,
-		0,
-		PFD_MAIN_PLANE,
-		0,
-		0, 0, 0
-	};
-
-	if (!(hDC = GetDC(hWnd)))
-	{
-		MessageBox(NULL, "CANT CREATE A GL DEVICE CONTEXT.", "ERROR", MB_OK | MB_ICONEXCLAMATION);
-		return FALSE;
-	}
-
-	if (!(PixelFormat = ChoosePixelFormat(hDC, &pfd)))
-	{
-		MessageBox(NULL, "cant find a suitable pixelformat.", "ERROUE", MB_OK | MB_ICONEXCLAMATION);
-		return FALSE;
-	}
-
-
-	if (!SetPixelFormat(hDC, PixelFormat, &pfd))
-	{
-		MessageBox(NULL, "Can't SET ZE PIXEL FORMAT.", "ERROU", MB_OK | MB_ICONEXCLAMATION);
-		return FALSE;
-	}
-
-	if (!(hRC = wglCreateContext(hDC)))
-	{
-		MessageBox(NULL, "WGLCREATECONTEXT FAILED.", "ERREUHX", MB_OK | MB_ICONEXCLAMATION);
-		return FALSE;
-	}
-
-	if (!wglMakeCurrent(hDC, hRC))
-	{
-		MessageBox(NULL, "Can't activate the gl rendering context.", "ERAIX", MB_OK | MB_ICONEXCLAMATION);
-		return FALSE;
-	}
-
-	// apparently, the WINAPI ShowWindow calls some opengl functions and causes a crash if the funcptrs aren't loaded before hand
-
-	//	wglSwapIntervalEXT = (PFNWGLSWAPINTERVALEXTPROC) wglGetProcAddress ("wglSwapIntervalEXT");  
-
-	if (!load_GL_extensions()) {
-		return FALSE;
-	}
-
-
-	ShowWindow(hWnd, SW_SHOWDEFAULT);
-	//SetForegroundWindow(hWnd);
-	//SetFocus(hWnd);
-
-	return TRUE;
-}
-
-void kill_GL_window() {
-
-	if (hRC) {
-		if (!wglMakeCurrent(NULL, NULL)) {
-			MessageBox(NULL, "wglMakeCurrent(NULL,NULL) failed", "erreur", MB_OK | MB_ICONINFORMATION);
-		}
-
-		if (!wglDeleteContext(hRC)) {
-			MessageBox(NULL, "RELEASE of rendering context failed.", "error", MB_OK | MB_ICONINFORMATION);
-		}
-
-		hRC = NULL;
-
-		if (hDC && !ReleaseDC(hWnd, hDC))
-		{
-			MessageBox(NULL, "Release DC failed.", "ERREUX", MB_OK | MB_ICONINFORMATION);
-			hDC = NULL;
-		}
-
-		if (hWnd && !DestroyWindow(hWnd))
-		{
-			MessageBox(NULL, "couldn't release hWnd.", "erruexz", MB_OK | MB_ICONINFORMATION);
-			hWnd = NULL;
-		}
-
-		if (!UnregisterClass("OpenGL", hInstance))
-		{
-			MessageBox(NULL, "couldn't unregister class.", "err", MB_OK | MB_ICONINFORMATION);
-			hInstance = NULL;
-		}
-
-	}
-
-}
-
-static std::string *convertLF_to_CRLF(const char *buf) {
-	std::string *buffer = new std::string(buf);
-	size_t start_pos = 0;
-	static const std::string LF = "\n";
-	static const std::string CRLF = "\r\n";
-	while ((start_pos = buffer->find(LF, start_pos)) != std::string::npos) {
-		buffer->replace(start_pos, LF.length(), CRLF);
-		start_pos += LF.length() + 1; // +1 to avoid the new \n we just created :P
-	}
-	return buffer;
+	return window;
 }

@@ -1,4 +1,4 @@
-#version 400
+#version 440
 
 #define M_PI 3.1415926535897932384626433832795
 
@@ -15,9 +15,8 @@ void main() {
 //	vec4 pos = gl_in[0].gl_Position;
 
 	for (int i = 0; i < 4; ++i) {
-		vec2 pos = gl_in[0].gl_Position.xy + 0.01*c[i];
-
-		gl_Position = uMVP*vec4(pos.xy, 0.0, 1.0);
+		vec2 pos = gl_in[0].gl_Position.xy + 0.02*c[i];
+		gl_Position = uMVP*vec4(pos, 0.0, 1.0);
 
 		EmitVertex();
 	}

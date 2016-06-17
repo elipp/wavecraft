@@ -1,9 +1,8 @@
 #include <Windows.h>
-#include <gl\GL.h>
+#include "glad/glad.h"
 #include <string>
 #include <vector>
 
-#include "glext_loader.h"
 #include "texture.h"
 #include "lodepng.h"
 
