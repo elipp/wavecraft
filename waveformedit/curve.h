@@ -147,23 +147,11 @@ struct SEGMENTED_BEZIER4 {
 	}
 
 	void points_insert4(int index, const mat24 &p) {
-		printf("points before insert4 (index %d):\n", index);
-
-		for (auto &p : points) {
-			printf("(%.3f, %.3f)\n", p.x, p.y);
-		}
 
 		vec2 rows[4] = { p.row(0), p.row(1), p.row(2), p.row(3) };
 		// lol this is weird af, but insert doesn't include the element pointed to by the iterator "last". so effectively inserting 0, 1, 2, 3 but NOT 4
 		points.insert(points.begin() + 4 * index, &rows[0], &rows[4]);
-		printf("points_insert4: points.size() = %d\n", (int)points.size());
 	
-		printf("points AFTER insert4:\n");
-
-		for (auto &p : points) {
-			printf("(%.3f, %.3f)\n", p.x, p.y);
-		}
-
 	}
 
 	vec2 evaluate(float t) const; // evaluate the segmented curve at t = t (will need to look up which curve has that t value within its range)

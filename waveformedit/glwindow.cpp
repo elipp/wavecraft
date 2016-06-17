@@ -50,20 +50,7 @@ void stop_main_loop() { _main_loop_running = false; }
 
 static SEGMENTED_BEZIER4 main_bezier;
 
-#define NUM_CURVES 1
-
-void kill_GL_window();
-
-void set_cursor_relative_pos(int x, int y) {
-	POINT pt;
-	pt.x = x;
-	pt.y = y;
-	ClientToScreen(hWnd, &pt);
-	SetCursorPos(pt.x, pt.y);
-}
-
-static std::string *convertLF_to_CRLF(const char *buf);
-
+static mat4 projection, projection_inv;
 
 vec4 solve_equation_coefs(const float *points) {
 
@@ -135,8 +122,8 @@ void update_data() {
 	//main_bezier.move_knot(4, vec2(main_bezier.get_knot(4).x, 1.1*sin(GT)));
 	//main_bezier.move_knot(1, vec2(main_bezier.get_knot(1).x, sin(1.3*GT)));
 
-	main_bezier.move_cp(6, vec2(main_bezier.get_cp(6).x, sin(GT)));
-	main_bezier.move_cp(10, vec2(main_bezier.get_cp(10).x, 1.3*sin(5*GT)));
+	//main_bezier.move_cp(6, vec2(main_bezier.get_cp(6).x, sin(GT)));
+	//main_bezier.move_cp(10, vec2(main_bezier.get_cp(10).x, 1.3*sin(5*GT)));
 	
 	main_bezier.update_buffer(32);
 	SND_write_to_buffer(main_bezier.samples);
@@ -147,20 +134,6 @@ void update_data() {
 	glBindBuffer(GL_ARRAY_BUFFER, point_VBOid);
 	glBufferSubData(GL_ARRAY_BUFFER, 0, main_bezier.points.size() * sizeof(vec2), &main_bezier.points[0]);
 
-
-	static int k = 1;
-
-	if (k) {
-		for (int i = 0; i < main_bezier.points.size()/4; ++i) {
-			for (int j = 0; j < 4; ++j) {
-				printf("points[%d]: (%.3f, %.3f)\n", 4*i + j, main_bezier.points[4*i + j].x, main_bezier.points[4*i+j].y);
-				printf("from parts: (%.3f, %.3f)\n", main_bezier.parts[i].points24.row(j).x, main_bezier.parts[i].points24.row(j).y);
-			}
-
-		}
-
-	}
-	k = 0;
 
 	//glUseProgram(wave_shader->getProgramHandle());
 	//wave_shader->update_uniform_mat4("coefs_inv", m);
@@ -176,23 +149,21 @@ void draw() {
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-	mat4 mvp = mat4::proj_ortho(-0.1, 1.1, -1.5, 1.5, -1.0, 1.0);
-
 	update_data();
 
 	glUseProgram(bezier_shader->getProgramHandle());
 	glBindVertexArray(bezier_VAOid);
-	bezier_shader->update_uniform_mat4("uMVP", mvp);
+	bezier_shader->update_uniform_mat4("uMVP", projection);
 	glDrawArrays(GL_PATCHES, 0, main_bezier.parts.size());
 
 	glUseProgram(grid_shader->getProgramHandle());
 	grid_shader->update_uniform_1f("tess_level", 5);
-	grid_shader->update_uniform_mat4("uMVP", mvp);
+	grid_shader->update_uniform_mat4("uMVP", projection);
 	glDrawArrays(GL_PATCHES, 0, 1);
 
 	glUseProgram(point_shader->getProgramHandle());
 	glBindVertexArray(point_VAOid);
-	point_shader->update_uniform_mat4("uMVP", mvp);
+	point_shader->update_uniform_mat4("uMVP", projection);
 	glDrawArrays(GL_POINTS, 0, main_bezier.points.size());
 	
 	glBindVertexArray(0);
@@ -207,7 +178,7 @@ void draw() {
 int init_GL() {
 
 	glClearColor(0.0, 0.0, 0.0, 1.0);
-	glEnable(GL_DEPTH_TEST);
+	//glEnable(GL_DEPTH_TEST);
 
 	//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	//glEnable(GL_BLEND);
@@ -297,21 +268,90 @@ int init_GL() {
 	main_bezier.split(0.70);
 	main_bezier.split(0.60);
 
+	projection = mat4::proj_ortho(-0.1, 1.1, -1.5, 1.5, -1.0, 1.0);
+	projection_inv = projection.inverted();
+
 	update_data();
 
 	return 1;
 
 }
 
-static void error_callback(int error, const char* description)
-{
+static void error_callback(int error, const char* description) {
 	printf("GLFW error: %s\n", description);
 }
-static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
+
+static int mouse_button_state[2] = { 0, 0 };
+static int drag_index = -1;
+
+static void cursor_position_callback(GLFWwindow* window, double xpos, double ypos) {
+	
+	if (drag_index < 0) { return; }
+
+	int index = (drag_index+1) / 4;
+	int modulo = drag_index % 4;
+
+	vec4 p((2 * xpos) / WINDOW_WIDTH - 1, (1 - ((2 * ypos) / WINDOW_HEIGHT)), 0.0, 1.0);
+	vec4 unproject = projection_inv * p;
+
+	//printf("index = %d, unprojected = (%f, %f, %f, %f)\n", index, unproject(0), unproject(1), unproject(2), unproject(3));
+
+	vec2 f(unproject(0), unproject(1));
+
+	if (modulo == 0 || modulo == 3) {
+		// then we're dealing with a knot
+		main_bezier.move_knot(index, f);
+	}
+
+	else {
+		main_bezier.move_cp(drag_index, f);
+	}
+
+}
+
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {
+	double x, y;
+	glfwGetCursorPos(window, &x, &y);
+	vec2 clickpos(x, y);
+
+	int start_dragging = 0;
+
+	if (mouse_button_state[button] == 1 && action == 0) {
+		mouse_button_state[button] = 0;
+		drag_index = -1;
+	}
+	else if (mouse_button_state[button] == 0 && action == 1) {
+		mouse_button_state[button] = 1;
+		start_dragging = 1;
+	}
+
+	printf("mouse button %d action at (%.1f, %.1f) (action %d)\n", button, x, y, action);
+
+	int i = 0;
+	for (auto &p : main_bezier.points) {
+		vec4 pp = vec4(p.x, p.y, 0.0, 1.0);
+		vec4 NDC = projection*pp;
+
+		vec2 p((WINDOW_WIDTH/2.0) * (NDC(0) + 1.0), 
+			WINDOW_HEIGHT - (WINDOW_HEIGHT/2.0)*(NDC(1) + 1.0));
+
+		if ((p - clickpos).length() < 6.0 && start_dragging) {
+			printf("point handle match, starting drag: %d (%.1f, %.1f)\n", i, p.x, p.y);
+			drag_index = i;
+			return;
+		}
+
+		++i;
+
+	}
+
+}
+
+
 
 GLFWwindow *create_GL_window(const char* title, int width, int height) {
 	GLFWwindow* window;
@@ -337,6 +377,9 @@ GLFWwindow *create_GL_window(const char* title, int width, int height) {
 	glfwMakeContextCurrent(window);
 	gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
 	glfwSwapInterval(1);
+
+	glfwSetCursorPosCallback(window, cursor_position_callback);
+	glfwSetMouseButtonCallback(window, mouse_button_callback);
 
 	return window;
 }

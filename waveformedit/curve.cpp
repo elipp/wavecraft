@@ -543,6 +543,10 @@ int SEGMENTED_BEZIER4::update_buffer(int precision) {
 		vec2 p = evaluate(t);
 
 		while (p.x < target_x) {
+			if (t > 1) { 
+				printf("update_buffer: while p.x < %.4f: t > 1. Invalid curve.\n", target_x);
+				return 0; 
+			}
 			t += dt;
 			p = evaluate(t);
 		}
