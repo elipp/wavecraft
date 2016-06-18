@@ -140,10 +140,11 @@ void update_data() {
 	glBindBuffer(GL_ARRAY_BUFFER, point_VBOid);
 	glBufferSubData(GL_ARRAY_BUFFER, 0, main_bezier.points.size() * sizeof(vec2), &main_bezier.points[0]);
 
-	float *spectrum = get_FFT_result();
-
-	glBindBuffer(GL_ARRAY_BUFFER, spectrum_VBOid);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, get_FFT_size() * sizeof(float), spectrum);
+	if (FFT_initialized()) {
+		float *spectrum = get_FFT_result();
+		glBindBuffer(GL_ARRAY_BUFFER, spectrum_VBOid);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, get_FFT_size() * sizeof(float), spectrum);
+	}
 
 	//glUseProgram(wave_shader->getProgramHandle());
 	//wave_shader->update_uniform_mat4("coefs_inv", m);
@@ -336,7 +337,14 @@ static void cursor_position_callback(GLFWwindow* window, double xpos, double ypo
 
 	if (modulo == 0 || modulo == 3) {
 		// then we're dealing with a knot
-		main_bezier.move_knot(index, f);
+		if (drag_index == 0) {
+			 main_bezier.move_knot(0, vec2(0.0, f.y));
+		} else if (drag_index >= main_bezier.points.size() - 1) {
+			main_bezier.move_knot(main_bezier.parts.size(), vec2(1.0, f.y));
+		}
+		else {
+			main_bezier.move_knot(index, f);
+		}
 	}
 
 	else {

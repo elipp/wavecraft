@@ -44,6 +44,11 @@ struct mat24 { // 2 columns, 4 rows
 		return vec2(columns[0](row), columns[1](row));
 	}
 
+	void assign_row(int row, const vec2 &v) {
+		columns[0].assign(row, v.x);
+		columns[1].assign(row, v.y);
+	}
+
 };
 
 struct BEZIER4;
@@ -108,6 +113,7 @@ struct BEZIER4_fragment {
 
 	BEZIER4_fragment(const mat24 &a_points24, float a_tmin, float a_tmax);
 
+	void update(); // update matrix_repr based on points24
 
 	BEZIER4_fragment() {}
 
@@ -174,6 +180,8 @@ struct SEGMENTED_BEZIER4 {
 	}
 
 	SEGMENTED_BEZIER4() {}
+
+	void update_segment_index(int index);
 
 	int allocate_buffer(int num_channels, size_t framesize);
 	int update_buffer(int precision = 32);

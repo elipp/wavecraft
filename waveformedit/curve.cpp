@@ -325,6 +325,12 @@ BEZIER4_fragment::BEZIER4_fragment(const mat24 &a_points24, float a_tmin, float 
 	tscale = 1.0 / (tmax - tmin);
 }
 
+void BEZIER4_fragment::update() {
+	// update matrix_repr based on points24
+	matrix_repr = multiply44_24(BEZIER4::weights, points24);
+}
+
+
 static int split_bezier(float t, const mat24 &points24, BEZIER4_fragment *out) {
 	if (t < 0.0 || t > 1.0) {
 		return 0;
@@ -427,28 +433,43 @@ int SEGMENTED_BEZIER4::split(float at_t) {
 	return 1;
 }
 
+void SEGMENTED_BEZIER4::update_segment_index(int index) {
+	auto &s = parts[index];
+	matrix_reprs[index] = s.matrix_repr;
+	points_replace4(index, s.points24); // this has the disadvantage of copying the 3 unchanged vec2s, but it looks neat
+}
+
 int SEGMENTED_BEZIER4::move_knot(int index, const vec2 &p) {
 	if (index > parts.size()) {
-		printf("SEGMENTED_BEZIER4::move_knot: error: requested index > num segments (%d > %d).\n", index, parts.size());
+		printf("SEGMENTED_BEZIER4::move_knot: error: requested index > num knots (%d > %d).\n", index, parts.size());
 		return 0;
 	}
 	
-	auto &s = parts[index];
+	auto &s = parts[index >= parts.size() ? parts.size()-1 : index];
 
-	s.points24.columns[0].assign(0, p.x);
-	s.points24.columns[1].assign(0, p.y);
+	if (index == parts.size()) {
+		// this means very last control point value :P
+		s.points24.assign_row(3, p);
+		s.update();
 
-	s.matrix_repr = multiply44_24(BEZIER4::weights, s.points24);
-	matrix_reprs[index] = s.matrix_repr;
-	points_replace4(index, s.points24); // this has the disadvantage of copying the 3 unchanged vec2s, but it looks neat
+		update_segment_index(parts.size() - 1);
+		return 1;
+	}
+
+	s.points24.assign_row(0, p);
+	s.update();
+
+	update_segment_index(index);
+			
 
 	if (index > 0) {
 		auto &sp = parts[index - 1];
-		sp.points24.columns[0].assign(3, p.x);
-		sp.points24.columns[1].assign(3, p.y);
-		sp.matrix_repr = multiply44_24(BEZIER4::weights, sp.points24);
-		matrix_reprs[index-1] = sp.matrix_repr;
-		points_replace4(index - 1, sp.points24);
+
+		sp.points24.assign_row(3, p);
+		sp.update();
+
+		update_segment_index(index - 1);
+
 	}
 
 	return 1;
@@ -456,8 +477,8 @@ int SEGMENTED_BEZIER4::move_knot(int index, const vec2 &p) {
 
 vec2 SEGMENTED_BEZIER4::get_knot(int index) const {
 	if (index > parts.size()) {
-		printf("SEGMENTED_BEZIER4::get_knot: error: requested index > num segments (%d > %d).\n", index, parts.size());
-		return vec2(0, 0);
+		printf("SEGMENTED_BEZIER4::get_knot: error: requested index > num segments (%d > %d), returning last\n", index, parts.size());
+		return parts.back().points24.row(3);
 	}
 
 	auto &s = parts[index];
@@ -466,6 +487,12 @@ vec2 SEGMENTED_BEZIER4::get_knot(int index) const {
 }
 
 vec2 SEGMENTED_BEZIER4::get_cp(int index) const {
+
+	if (index > points.size()) {
+		printf("SEGMENTED_BEZIER4::get_cp: error: requested index > num CPs (%d > %d), returning last\n", index, points.size());
+		return points.back();
+	}
+
 	int mod = index % 4;
 	int seg = index / 4;
 

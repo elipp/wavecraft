@@ -21,7 +21,11 @@ static std::condition_variable FFT_condition;
 static std::mutex FFT_wait_mutex;
 static bool FFT_ready = false;
 
-static const int FFT_SIZE = 4096;
+static int FFT_init_done = 0;
+
+int FFT_initialized() { return FFT_init_done;  }
+
+static const int FFT_SIZE = 3072;
 
 static HANDLE FFT_event;
 
@@ -57,10 +61,14 @@ static void resample_curve() {
 		while (p.x < target_x) {
 			if (t > 1) {
 				printf("FFT: while p.x < %.4f: t > 1. Invalid curve.\n", target_x);
+				return;
 			}
 			t += dt;
 			p = main.evaluate(t);
 		}
+
+		if (p.y > 1.0) { p.y = p.y - 2.0; }
+		else if (p.y < -1.0) { p.y = p.y + 2.0; }
 
 		sampling_result[i] = p.y;
 	}
@@ -76,18 +84,18 @@ static int FFT_thread_proc() {
 	size_t input_size = FFT_SIZE;
 	size_t output_size = input_size / 2 + 1;
 
-	if (!output_buffer) output_buffer = static_cast<fftwf_complex*>(fftwf_malloc(output_size*sizeof(fftwf_complex)));
-	if (!sampling_result) sampling_result = new float[input_size];
-	if (!FFT_result) {
-		printf("FFT: output_size = %lu\n", output_size);
-		FFT_result = new float[output_size - 1];
-	}
+	output_buffer = static_cast<fftwf_complex*>(fftwf_malloc(output_size*sizeof(fftwf_complex)));
+	sampling_result = new float[input_size];
+	printf("FFT: output_size = %lu\n", output_size);
+	FFT_result = new float[output_size - 1];
 	
 
 	int flags = FFTW_ESTIMATE;
 	fftwf_plan plan = fftwf_plan_dft_r2c_1d(input_size, sampling_result, output_buffer, flags);
 
 	timer_t lock_timer;
+
+	FFT_init_done = 1;
 
 	while (wfedit_running()) {
 
@@ -118,6 +126,12 @@ static int FFT_thread_proc() {
 	return 1;
 }
 
+static void notify_FFT_thread() {
+
+	std::unique_lock<std::mutex> lock(FFT_wait_mutex);
+	FFT_ready = true;
+	FFT_condition.notify_one();
+}
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
 
@@ -139,9 +153,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	long wait = 0;
 	static double time_per_frame_ms = 0;
-		
-	//DWORD sound_threadID;
-	//CreateThread(NULL, 0, sound_thread_proc, NULL, 0, &sound_threadID);
 
 	std::thread sound_thread(sound_thread_proc);
 
@@ -160,12 +171,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	while (wfedit_running() && !glfwWindowShouldClose(window)) {
 
 		draw();
-		
-		{
-			std::unique_lock<std::mutex> lock(FFT_wait_mutex);
-			FFT_ready = true;
-			FFT_condition.notify_one();
-		}
+		notify_FFT_thread();
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
@@ -174,14 +180,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
 	wfedit_stop(); // this is needed to stop the worker threadz
 
-	// not sure if this is a good way to do this :D
-
-	{
-		std::unique_lock<std::mutex> lock(FFT_wait_mutex);
-		FFT_ready = true;
-		FFT_condition.notify_one();
-	}
-
+	notify_FFT_thread(); // notify once more so we can break out
 
 	FFT_thread.join();
 	sound_thread.join();
