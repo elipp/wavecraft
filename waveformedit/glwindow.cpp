@@ -13,6 +13,7 @@
 #include <signal.h>
 #include <mutex>
 
+#include "wfedit.h"
 #include "texture.h"
 #include "shader.h"
 #include "lin_alg.h"
@@ -37,18 +38,27 @@ unsigned WINDOW_HEIGHT = WIN_H;
 static GLuint wave_VBOid, wave_VAOid;
 static GLuint bezier_VBOid, bezier_VAOid;
 static GLuint point_VBOid, point_VAOid;
+static GLuint spectrum_VBOid, spectrum_VAOid;
 
 bool fullscreen = false;
 bool active = TRUE;
 
 static Texture *gradient_texture;
-static ShaderProgram *wave_shader, *point_shader, *grid_shader, *bezier_shader;
+
+static ShaderProgram 
+	*wave_shader,
+	*point_shader,
+	*grid_shader,
+	*bezier_shader,
+	*spectrum_shader;
 
 static bool _main_loop_running = true;
 bool main_loop_running() { return _main_loop_running; }
 void stop_main_loop() { _main_loop_running = false; }
 
 static SEGMENTED_BEZIER4 main_bezier;
+
+SEGMENTED_BEZIER4 get_main_bezier_copy() { return main_bezier;  }
 
 static mat4 projection, projection_inv;
 
@@ -79,7 +89,9 @@ static int allocate_static_buf(size_t size) {
 	return 0;
 }
 
-
+float *get_main_samples() {
+	return main_bezier.samples;
+}
 
 static int get_samples(const vec4 &coefs, wave_format_t *fmt) {
 	UINT32 frame_size = SND_get_frame_size();
@@ -118,12 +130,6 @@ void update_data() {
 
 	main_bezier.allocate_buffer(fmt.num_channels, SND_get_frame_size());
 	// this won't do anything if it's already allocated
-
-	//main_bezier.move_knot(4, vec2(main_bezier.get_knot(4).x, 1.1*sin(GT)));
-	//main_bezier.move_knot(1, vec2(main_bezier.get_knot(1).x, sin(1.3*GT)));
-
-	//main_bezier.move_cp(6, vec2(main_bezier.get_cp(6).x, sin(GT)));
-	//main_bezier.move_cp(10, vec2(main_bezier.get_cp(10).x, 1.3*sin(5*GT)));
 	
 	main_bezier.update_buffer(32);
 	SND_write_to_buffer(main_bezier.samples);
@@ -134,6 +140,10 @@ void update_data() {
 	glBindBuffer(GL_ARRAY_BUFFER, point_VBOid);
 	glBufferSubData(GL_ARRAY_BUFFER, 0, main_bezier.points.size() * sizeof(vec2), &main_bezier.points[0]);
 
+	float *spectrum = get_FFT_result();
+
+	glBindBuffer(GL_ARRAY_BUFFER, spectrum_VBOid);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, get_FFT_size() * sizeof(float), spectrum);
 
 	//glUseProgram(wave_shader->getProgramHandle());
 	//wave_shader->update_uniform_mat4("coefs_inv", m);
@@ -147,9 +157,9 @@ void update_data() {
 
 void draw() {
 
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
 	update_data();
+	
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	glUseProgram(bezier_shader->getProgramHandle());
 	glBindVertexArray(bezier_VAOid);
@@ -165,6 +175,11 @@ void draw() {
 	glBindVertexArray(point_VAOid);
 	point_shader->update_uniform_mat4("uMVP", projection);
 	glDrawArrays(GL_POINTS, 0, main_bezier.points.size());
+
+	glUseProgram(spectrum_shader->getProgramHandle());
+	glBindVertexArray(spectrum_VAOid);
+	spectrum_shader->update_uniform_mat4("uMVP", projection);
+	glDrawArrays(GL_POINTS, 0, get_FFT_size()/2);
 	
 	glBindVertexArray(0);
 
@@ -209,10 +224,15 @@ int init_GL() {
 		{0, "COORD_COLUMN_X"}, {1, "COORD_COLUMN_Y"}
 	};
 
+	std::unordered_map<GLuint, std::string> spectrum_attrib_bindings = {
+		{0, "A_dB"}
+	};
+
 	//wave_shader = new ShaderProgram("shaders/wave", default_attrib_bindings);
 	point_shader = new ShaderProgram("shaders/pointplot", default_attrib_bindings);
 	grid_shader = new ShaderProgram("shaders/grid", default_attrib_bindings);
 	bezier_shader = new ShaderProgram("shaders/bezier", bezier_attrib_bindings);
+	spectrum_shader = new ShaderProgram("shaders/spectrum", spectrum_attrib_bindings);
 
 	//glGenVertexArrays(1, &wave_VAOid);
 	//glBindVertexArray(wave_VAOid);
@@ -261,12 +281,22 @@ int init_GL() {
 	glDisableVertexAttribArray(0);
 	glDisableVertexAttribArray(1);
 
+	glGenVertexArrays(1, &spectrum_VAOid);
+	glBindVertexArray(spectrum_VAOid);
+	
+	glEnableVertexAttribArray(0);
+	glGenBuffers(1, &spectrum_VBOid);
+	glBindBuffer(GL_ARRAY_BUFFER, spectrum_VBOid);
+	glBufferData(GL_ARRAY_BUFFER, get_FFT_size()*sizeof(float), NULL, GL_DYNAMIC_DRAW);
+
+	glVertexAttribPointer(0, 1, GL_FLOAT, GL_FALSE, 0, 0);
+
+	glBindVertexArray(0);
+
 	main_bezier = SEGMENTED_BEZIER4(BEZIER4(vec2(0.0, 0.0), vec2(0.33, -1.0), vec2(0.66, 1.0), vec2(1.0, 0.0)));
 
-	main_bezier.split(0.15);
 	main_bezier.split(0.35);
 	main_bezier.split(0.70);
-	main_bezier.split(0.60);
 
 	projection = mat4::proj_ortho(-0.1, 1.1, -1.5, 1.5, -1.0, 1.0);
 	projection_inv = projection.inverted();
@@ -281,8 +311,10 @@ static void error_callback(int error, const char* description) {
 	printf("GLFW error: %s\n", description);
 }
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+		wfedit_stop();
 		glfwSetWindowShouldClose(window, GLFW_TRUE);
+	}
 }
 
 static int mouse_button_state[2] = { 0, 0 };
@@ -339,7 +371,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 		vec2 p((WINDOW_WIDTH/2.0) * (NDC(0) + 1.0), 
 			WINDOW_HEIGHT - (WINDOW_HEIGHT/2.0)*(NDC(1) + 1.0));
 
-		if ((p - clickpos).length() < 6.0 && start_dragging) {
+		if ((p - clickpos).length() < 7.0 && start_dragging) {
 			printf("point handle match, starting drag: %d (%.1f, %.1f)\n", i, p.x, p.y);
 			drag_index = i;
 			return;
