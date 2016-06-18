@@ -2,6 +2,7 @@
 
 #include <xmmintrin.h>
 #include <smmintrin.h>
+#include <fstream>
 
 inline void print_mat4(const mat4 &M) {
 	for (int i = 0; i < 4; ++i) {
@@ -558,6 +559,7 @@ int SEGMENTED_BEZIER4::allocate_buffer(int num_channels, size_t framesize) {
 	return 1;
 }
 
+
 int SEGMENTED_BEZIER4::update_buffer(int precision) {
 
 	const float dx = 1.0 / (float)frame_size;
@@ -581,6 +583,10 @@ int SEGMENTED_BEZIER4::update_buffer(int precision) {
 		samples[2 * i] = p.y;
 		samples[2 * i + 1] = p.y;
 
+	}
+
+	if (record.is_open()) {
+		record.write(reinterpret_cast<const char*>(samples), 2*frame_size*sizeof(float));
 	}
 
 	return 1;

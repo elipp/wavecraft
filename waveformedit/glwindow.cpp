@@ -12,6 +12,7 @@
 #include <cassert>
 #include <signal.h>
 #include <mutex>
+#include <sys/stat.h>
 
 #include "wfedit.h"
 #include "texture.h"
@@ -39,6 +40,10 @@ static GLuint wave_VBOid, wave_VAOid;
 static GLuint bezier_VBOid, bezier_VAOid;
 static GLuint point_VBOid, point_VAOid;
 static GLuint spectrum_VBOid, spectrum_VAOid;
+
+static int recording = 0;
+
+std::ofstream record;
 
 bool fullscreen = false;
 bool active = TRUE;
@@ -75,6 +80,30 @@ vec4 solve_equation_coefs(const float *points) {
 	vec4 correct = m.transposed() * vec4(points[1], points[3], points[5], points[7]);
 
 	return correct;
+}
+
+void start_recording() {
+
+	static const std::string default_base = "recording";
+
+	std::string tn;
+	struct stat fo;
+	
+	int r, s = 0;
+	do {
+		tn = default_base + std::to_string(s) + ".raw";
+		r = stat(tn.c_str(), &fo);
+		++s;
+	} while (r == 0);
+		
+	printf("Recording raw data to file %s.\n", tn.c_str());
+	record.open(tn, std::ios::binary);
+}
+
+void stop_recording() {
+
+	printf("Recording stopped.\n");
+	record.close();
 }
 
 static float *sample_buffer = NULL;
@@ -296,8 +325,12 @@ int init_GL() {
 
 	main_bezier = SEGMENTED_BEZIER4(BEZIER4(vec2(0.0, 0.0), vec2(0.33, -1.0), vec2(0.66, 1.0), vec2(1.0, 0.0)));
 
-	main_bezier.split(0.35);
-	main_bezier.split(0.70);
+	main_bezier.split(0.15);
+	//main_bezier.split(0.30);
+	main_bezier.split(0.45);
+	//main_bezier.split(0.60);
+	main_bezier.split(0.75);
+	//main_bezier.split(0.90);
 
 	projection = mat4::proj_ortho(-0.1, 1.1, -1.5, 1.5, -1.0, 1.0);
 	projection_inv = projection.inverted();
@@ -315,6 +348,16 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
 		wfedit_stop();
 		glfwSetWindowShouldClose(window, GLFW_TRUE);
+	}
+	else if (key == GLFW_KEY_R && action == GLFW_PRESS) {
+		if (recording) {
+			stop_recording();
+			recording = 0;
+		}
+		else {
+			start_recording();
+			recording = 1;
+		}
 	}
 }
 
@@ -384,9 +427,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 			drag_index = i;
 			return;
 		}
-
 		++i;
-
 	}
 
 }

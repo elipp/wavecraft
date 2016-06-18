@@ -22,3 +22,9 @@ float *get_main_samples();
 SEGMENTED_BEZIER4 get_main_bezier_copy();
 
 int FFT_initialized();
+
+void start_recording();
+void stop_recording();
+
+extern std::ofstream record;
+
