@@ -1,0 +1,29 @@
+#version 440
+
+layout (isolines) in;
+uniform mat4 uMVP;
+in mat2x4 coef_mat[];
+
+out vec4 color_out;
+
+vec2 get_point(float t) {
+    float t2 = t*t;
+    float t3 = t2*t;
+
+    vec4 Tv = vec4(1.0, t, t2, t3);
+
+    return Tv*coef_mat[0];
+}
+
+void main() {
+    vec2 p = get_point(gl_TessCoord.x);
+    float py = p.y;
+
+    if (p.y > 1.0) { p.y = p.y - 2.0; }
+    else if (p.y < -1.0) { p.y = p.y + 2.0; }
+
+    color_out = (py == p.y) ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+
+    vec4 pos = vec4(p.x, p.y, 0.0, 1.0);
+    gl_Position = uMVP*pos;
+}

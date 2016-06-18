@@ -1,0 +1,22 @@
+#version 440
+
+layout (points) in;
+layout (line_strip, max_vertices = 2) out;
+
+uniform mat4 uMVP;
+
+out vec2 pos;
+
+void main() {
+    float dB = 0.007*gl_in[0].gl_Position.y - 0.45; // at least on a few runs, the minimum value has been ~ -100
+
+    gl_Position = uMVP*vec4(gl_in[0].gl_Position.x, dB, 0.0, 1.0);
+    pos = gl_Position.xy;
+    EmitVertex();
+
+    gl_Position = uMVP*vec4(gl_in[0].gl_Position.x, -1.45, 0.0, 1.0);
+    pos = gl_Position.xy;
+    EmitVertex();
+
+    EndPrimitive();
+}

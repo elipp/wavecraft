@@ -1,0 +1,12 @@
+#version 440
+
+layout(vertices = 1) out;
+
+in mat2x4 mat24_repr[];
+out mat2x4 coef_mat[];
+
+void main() {
+	coef_mat[0] = mat24_repr[0];
+	gl_TessLevelOuter[0] = 1; // we're only tessellating one line
+	gl_TessLevelOuter[1] = 64; // tessellate the line into 100 segments
+}

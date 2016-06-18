@@ -1,0 +1,10 @@
+#version 440
+
+layout (location=0) in vec4 COORD_COLUMN_X;
+layout (location=1) in vec4 COORD_COLUMN_Y;
+
+out mat2x4 mat24_repr;
+
+void main() {
+    mat24_repr = mat2x4(COORD_COLUMN_X, COORD_COLUMN_Y);
+}

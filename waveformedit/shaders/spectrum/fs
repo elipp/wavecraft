@@ -1,0 +1,10 @@
+#version 440
+
+out vec4 frag_color;
+
+in vec2 pos;
+
+void main() {
+    float A = pos.y + 1.30;
+    frag_color = vec4(A, 1-A, 0.0, 1.0);
+}
