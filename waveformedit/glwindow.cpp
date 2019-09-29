@@ -1,5 +1,9 @@
 #include "glwindow.h"
 
+#pragma comment(lib, "lin_alg.lib")
+#pragma comment(lib, "glfw3.lib")
+#pragma comment(lib, "libfftw3f-3.lib")
+
 #include <iostream>
 #include <cstdio>
 #include <cstdlib>
@@ -15,7 +19,7 @@
 #include <sys/stat.h>
 
 #include "wfedit.h"
-#include "texture.h"
+//#include "texture.h"
 #include "shader.h"
 #include "lin_alg.h"
 #include "sound.h"
@@ -48,7 +52,7 @@ std::ofstream record;
 bool fullscreen = false;
 bool active = TRUE;
 
-static Texture *gradient_texture;
+//static Texture *gradient_texture;
 
 static ShaderProgram 
 	*wave_shader,

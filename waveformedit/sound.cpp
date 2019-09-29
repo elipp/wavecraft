@@ -56,7 +56,7 @@ int SND_initialized() {
 
 size_t SND_write_to_buffer(const float *data) {
 	// data should contain 2*frame_size worth of floats normalized to [-1;1]
-	float max = (std::numeric_limits<short>::max)();
+	constexpr float max = (std::numeric_limits<short>::max)();
 	
 	main_buffer_lock.lock();
 
@@ -195,7 +195,7 @@ HRESULT PlayAudioStream() {
 	float halfmax = max / 2.0;
 	float dt = 1.0 / (float)wave_format.nSamplesPerSec;
 
-	float freq = 2*(float)wave_format.nSamplesPerSec / (float)frame_size;
+	float freq = 1*(float)wave_format.nSamplesPerSec / (float)frame_size;
 
 	wformat.wave_freq = freq;
 	wformat.cycle_duration_ms = 1.0 / freq * 1000.0;

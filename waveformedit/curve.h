@@ -12,7 +12,7 @@
 struct vec2 {
 	float x, y;
 	vec2(float xx, float yy) : x(xx), y(yy) {}
-	vec2() {};
+	vec2() : x(0), y(0) {};
 	vec2 operator+(const vec2 &v) const {
 		return vec2(this->x + v.x, this->y + v.y);
 	}
